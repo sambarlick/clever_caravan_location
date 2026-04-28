@@ -13,17 +13,17 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    DEGREE,
-    UnitOfLength,
-    UnitOfSpeed,
-)
+from homeassistant.const import UnitOfLength, UnitOfSpeed
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SIGNAL_LOCATION_UPDATED
+from .const import (
+    DOMAIN,
+    SIGNAL_GEOCODE_UPDATED,
+    SIGNAL_LOCATION_UPDATED,
+)
 from .coordinator import CaravanLocationCoordinator, get_coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,9 +34,14 @@ class CaravanSensorDescription(SensorEntityDescription):
     """Sensor description with a value getter against the coordinator."""
 
     value_fn: Callable[[CaravanLocationCoordinator], object]
+    # Which dispatcher signal triggers a write. Most react to LOCATION_UPDATED;
+    # geocode-derived sensors react to GEOCODE_UPDATED instead so they don't
+    # flicker on every GPS update.
+    update_signal: str = SIGNAL_LOCATION_UPDATED
 
 
 SENSORS: tuple[CaravanSensorDescription, ...] = (
+    # GPS-derived
     CaravanSensorDescription(
         key="latitude",
         translation_key="latitude",
@@ -107,6 +112,29 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         suggested_display_precision=2,
         value_fn=lambda c: c.latest.hdop if c.latest else None,
     ),
+
+    # Geocode-derived — separate update signal so they don't flicker
+    CaravanSensorDescription(
+        key="city",
+        translation_key="city",
+        icon="mdi:city",
+        update_signal=SIGNAL_GEOCODE_UPDATED,
+        value_fn=lambda c: c.geocode.city if c.geocode else None,
+    ),
+    CaravanSensorDescription(
+        key="state",
+        translation_key="state",
+        icon="mdi:map",
+        update_signal=SIGNAL_GEOCODE_UPDATED,
+        value_fn=lambda c: c.geocode.state if c.geocode else None,
+    ),
+    CaravanSensorDescription(
+        key="country",
+        translation_key="country",
+        icon="mdi:earth",
+        update_signal=SIGNAL_GEOCODE_UPDATED,
+        value_fn=lambda c: c.geocode.country if c.geocode else None,
+    ),
 )
 
 
@@ -115,7 +143,6 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up sensor entities for this config entry."""
     coordinator = get_coordinator(hass, entry.entry_id)
     async_add_entities(
         CaravanSensor(coordinator, entry, desc) for desc in SENSORS
@@ -149,7 +176,9 @@ class CaravanSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, SIGNAL_LOCATION_UPDATED, self._handle_update
+                self.hass,
+                self.entity_description.update_signal,
+                self._handle_update,
             )
         )
 
@@ -163,8 +192,10 @@ class CaravanSensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        # status sensor stays available even when there's no fix yet
-        # (it shows "Unknown") so the dashboard isn't blank on first boot.
+        # Status sensor stays available always (shows "Unknown" when no fix).
+        # Geocode sensors only available once we have a result.
         if self.entity_description.key == "status":
             return True
+        if self.entity_description.update_signal == SIGNAL_GEOCODE_UPDATED:
+            return self.coordinator.geocode is not None
         return self.coordinator.latest is not None

@@ -48,10 +48,19 @@
       "fix_quality": { "name": "GPS fix quality" },
       "satellites_used": { "name": "Satellites used" },
       "satellites_visible": { "name": "Satellites visible" },
-      "hdop": { "name": "HDOP" }
+      "hdop": { "name": "HDOP" },
+      "city": { "name": "City" },
+      "state": { "name": "State" },
+      "country": { "name": "Country" }
     },
     "binary_sensor": {
       "gps_healthy": { "name": "GPS healthy" }
+    }
+  },
+  "services": {
+    "update": {
+      "name": "Force update",
+      "description": "Force an immediate update of zone.home, system timezone, and reverse-geocode sensors using the latest GPS fix."
     }
   }
 }
