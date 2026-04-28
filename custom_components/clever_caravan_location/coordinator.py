@@ -14,11 +14,8 @@ distances. Nominatim respects the public rate-limit policy.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta
 import logging
-
-import aiohttp
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -60,16 +57,11 @@ class CaravanLocationCoordinator:
         self._last_movement: datetime | None = None
         self._geocode: GeocodeResult | None = None
 
-        # Action throttles — track last-fired position for each action
+        # Action throttles
         self._last_set_location: tuple[float, float] | None = None
         self._last_timezone: tuple[float, float] | None = None
         self._last_geocode_at: datetime | None = None
         self._last_geocode_pos: tuple[float, float] | None = None
-
-        # timezonefinder is created lazily — it loads ~50MB of polygon
-        # data and we don't want that on the import path.
-        self._tz_finder = None
-        self._tz_finder_lock = asyncio.Lock()
 
         source.subscribe(self._on_fix)
 
@@ -94,14 +86,10 @@ class CaravanLocationCoordinator:
     def geocode(self) -> GeocodeResult | None:
         return self._geocode
 
-    # --- Public action API (called by service handler) ---
+    # --- Public action API ---
 
     async def async_force_update(self) -> None:
-        """Force all action paths to fire on the latest fix.
-
-        Bypasses throttles. Used by the service entry point so the
-        user can trigger an explicit refresh from automations or UI.
-        """
+        """Force all action paths on the latest fix, bypassing throttles."""
         if self._latest is None or not self._latest.valid:
             _LOGGER.warning("Cannot force update: no valid fix yet")
             return
@@ -118,17 +106,15 @@ class CaravanLocationCoordinator:
         self._update_status(fix)
         async_dispatcher_send(self.hass, SIGNAL_LOCATION_UPDATED)
 
-        # Action layer fires async; don't block the source callback.
         if fix.valid:
             self.hass.async_create_task(self._run_actions(fix))
 
     async def _run_actions(self, fix: LocationFix) -> None:
-        """Action layer: each action throttles independently."""
         await self._update_zone_home(fix)
         await self._update_timezone(fix)
         await self._update_geocode(fix)
 
-    # --- Status derivation (unchanged from v0.1) ---
+    # --- Status derivation ---
 
     def _update_status(self, fix: LocationFix) -> None:
         if not fix.valid:
@@ -195,19 +181,7 @@ class CaravanLocationCoordinator:
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Failed to update zone.home")
 
-    # --- Action: timezone ---
-
-    async def _ensure_tz_finder(self):
-        """Lazy-init timezonefinder on first use."""
-        if self._tz_finder is not None:
-            return self._tz_finder
-        async with self._tz_finder_lock:
-            if self._tz_finder is None:
-                from timezonefinder import TimezoneFinder
-                self._tz_finder = await self.hass.async_add_executor_job(
-                    TimezoneFinder
-                )
-        return self._tz_finder
+    # --- Action: timezone (via tzfpy) ---
 
     async def _update_timezone(
         self, fix: LocationFix, force: bool = False
@@ -218,9 +192,12 @@ class CaravanLocationCoordinator:
             return
 
         try:
-            tf = await self._ensure_tz_finder()
+            # tzfpy's get_tz is module-level and lazy-inits its data on
+            # first call. Run in executor — first call may take a moment
+            # while the Rust extension loads its polygon data.
+            from tzfpy import get_tz
             tz_name = await self.hass.async_add_executor_job(
-                tf.timezone_at, lng=fix.longitude, lat=fix.latitude,
+                get_tz, fix.longitude, fix.latitude,
             )
             if tz_name and tz_name != self.hass.config.time_zone:
                 await self.hass.config.async_set_time_zone(tz_name)
@@ -237,7 +214,6 @@ class CaravanLocationCoordinator:
         now = dt_util.utcnow()
 
         if not force:
-            # Two throttles: distance AND time. Need to fail both to skip.
             time_ok = (
                 self._last_geocode_at is None
                 or (now - self._last_geocode_at).total_seconds()
@@ -254,8 +230,6 @@ class CaravanLocationCoordinator:
             session, fix.latitude, fix.longitude,
         )
 
-        # Update bookkeeping even on failure — don't hammer the API
-        # retrying the same coordinates.
         self._last_geocode_at = now
         self._last_geocode_pos = (fix.latitude, fix.longitude)
 
@@ -275,12 +249,6 @@ class CaravanLocationCoordinator:
         fix: LocationFix,
         threshold_deg: float,
     ) -> bool:
-        """True if the fix is far enough from `last` to fire an action.
-
-        Cheap chebyshev distance — exact great-circle isn't needed at
-        these scales. Threshold values in const.py document the
-        approximate metres-per-degree at typical Australian latitudes.
-        """
         if last is None:
             return True
         return (
