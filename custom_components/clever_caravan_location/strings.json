@@ -1,0 +1,57 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Clever Caravan Location",
+        "description": "Pick the type of location source.",
+        "data": { "source": "Source type" }
+      },
+      "usb": {
+        "title": "USB GPS dongle",
+        "description": "Pick the GPS device. Detected USB serial devices appear in the dropdown — if your dongle isn't listed, type the path manually (typically /dev/serial/by-id/usb-...).",
+        "data": {
+          "usb_device": "GPS device path",
+          "usb_baudrate": "Baudrate"
+        }
+      },
+      "entities": {
+        "title": "Source entities",
+        "description": "Point the integration at the lat/lon (and optionally elevation/speed) entities your {source} setup exposes.",
+        "data": {
+          "latitude_entity": "Latitude entity",
+          "longitude_entity": "Longitude entity",
+          "elevation_entity": "Elevation entity (optional)",
+          "speed_entity": "Speed entity (km/h, optional)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Clever Caravan Location is already configured (only one instance is supported)."
+    }
+  },
+  "selector": {
+    "source": {
+      "options": {
+        "usb": "USB GPS dongle (plugged into HA host)",
+        "entity": "Entity-based (Starlink, device tracker, MQTT GPS sensors)",
+        "manual": "Manual (input_number helpers)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "latitude": { "name": "Latitude" },
+      "longitude": { "name": "Longitude" },
+      "elevation": { "name": "Elevation" },
+      "speed": { "name": "Speed" },
+      "status": { "name": "Status" },
+      "fix_quality": { "name": "GPS fix quality" },
+      "satellites_used": { "name": "Satellites used" },
+      "satellites_visible": { "name": "Satellites visible" },
+      "hdop": { "name": "HDOP" }
+    },
+    "binary_sensor": {
+      "gps_healthy": { "name": "GPS healthy" }
+    }
+  }
+}
