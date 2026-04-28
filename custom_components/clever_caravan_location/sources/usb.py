@@ -17,7 +17,7 @@ import asyncio
 import logging
 
 import pynmea2
-import serial_asyncio
+import serial_asyncio_fast as serial_asyncio
 
 from homeassistant.util import dt as dt_util
 
