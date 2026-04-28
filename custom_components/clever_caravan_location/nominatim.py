@@ -1,18 +1,17 @@
 """Nominatim reverse-geocoding client.
 
-Tiny, no third-party dependencies beyond aiohttp (already a HA dep).
-Uses the public OpenStreetMap Nominatim service. We respect their
-usage policy: identify ourselves via User-Agent, throttle requests,
-and don't hammer the endpoint.
+Uses HA's shared aiohttp session and stdlib asyncio.timeout (Python 3.11+).
+Respects OSM Nominatim usage policy: User-Agent identification, throttling
+handled at the coordinator level, no aggressive retries on failure.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import logging
 
 import aiohttp
-import async_timeout
 
 from .const import NOMINATIM_TIMEOUT_S, NOMINATIM_URL, NOMINATIM_USER_AGENT
 
@@ -27,7 +26,7 @@ class GeocodeResult:
     state: str | None
     country: str | None
     country_code: str | None
-    raw_address: dict | None  # full address dict for power users
+    raw_address: dict | None
 
 
 async def reverse_geocode(
@@ -44,13 +43,13 @@ async def reverse_geocode(
         "lat": f"{latitude:.6f}",
         "lon": f"{longitude:.6f}",
         "format": "jsonv2",
-        "zoom": "10",  # suburb-scale; balance detail vs Null Island weirdness
+        "zoom": "10",
         "addressdetails": "1",
     }
     headers = {"User-Agent": NOMINATIM_USER_AGENT}
 
     try:
-        async with async_timeout.timeout(NOMINATIM_TIMEOUT_S):
+        async with asyncio.timeout(NOMINATIM_TIMEOUT_S):
             async with session.get(
                 NOMINATIM_URL, params=params, headers=headers
             ) as resp:
@@ -69,8 +68,8 @@ async def reverse_geocode(
     if not address:
         return None
 
-    # Cascading fallback for "city" — Australian remote-area names live
-    # under different keys (locality, hamlet, town) than urban names (city).
+    # Cascading fallback for "city" — Australian remote areas live under
+    # different keys (locality, hamlet, town) than urban names (city).
     city = (
         address.get("city")
         or address.get("town")

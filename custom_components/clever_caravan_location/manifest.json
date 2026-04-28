@@ -16,7 +16,6 @@
   "requirements": [
     "pyserial-asyncio-fast==0.16",
     "pynmea2==1.19.0",
-    "timezonefinder==6.5.9",
-    "aiohttp"
+    "timezonefinder==8.2.2"
   ]
 }
