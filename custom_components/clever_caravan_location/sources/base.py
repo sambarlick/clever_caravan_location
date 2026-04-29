@@ -18,7 +18,7 @@ class LocationFix:
     """Normalised location fix from any source.
 
     Core fields are required. GPS-specific fields default to None so
-    sources that don't have them (entity, manual) just leave them off.
+    sources that don't have them (entity, manual) leave them off.
     """
 
     latitude: float
@@ -27,11 +27,15 @@ class LocationFix:
     speed_kmh: float | None
     timestamp: datetime
     valid: bool
-    # Optional GPS-specific signal — populated by USB source, not others
-    fix_quality: int | None = None      # 0=no fix, 1=GPS, 2=DGPS, 4=RTK fix, 5=RTK float
+    # Optional GPS-specific signal — populated by USB source primarily
+    fix_quality: int | None = None       # 0..9 per NMEA $GPGGA
+    fix_mode: int | None = None          # 1=no fix, 2=2D, 3=3D ($GPGSA)
     satellites_used: int | None = None
     satellites_visible: int | None = None
     hdop: float | None = None
+    vdop: float | None = None
+    heading_deg: float | None = None     # course over ground, degrees
+    gps_time: datetime | None = None     # GPS-reported UTC timestamp
 
 
 class LocationSource(ABC):

@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfLength, UnitOfSpeed
+from homeassistant.const import DEGREE, UnitOfLength, UnitOfSpeed
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
@@ -21,12 +21,64 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    DOP_TO_METRES,
+    FIX_MODE_2D,
+    FIX_MODE_3D,
+    FIX_MODE_NO_FIX,
+    FIX_MODE_OPTIONS,
+    FIX_QUALITY_LABELS,
+    FIX_QUALITY_OPTIONS,
+    GRADIENT_OPTIONS,
+    HEADING_DIRECTIONS,
     SIGNAL_GEOCODE_UPDATED,
     SIGNAL_LOCATION_UPDATED,
+    STATUS_OPTIONS,
 )
 from .coordinator import CaravanLocationCoordinator, get_coordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _degrees_to_cardinal(deg: float) -> str:
+    return HEADING_DIRECTIONS[int((deg + 11.25) / 22.5) % 16]
+
+
+def _heading_value(c):
+    if c.latest is None or c.latest.heading_deg is None:
+        return None
+    return _degrees_to_cardinal(c.latest.heading_deg)
+
+
+def _bearing_value(c):
+    if c.latest is None or c.latest.heading_deg is None:
+        return None
+    return round(c.latest.heading_deg, 1)
+
+
+def _fix_quality_value(c):
+    if c.latest is None or c.latest.fix_quality is None:
+        return None
+    return FIX_QUALITY_LABELS.get(c.latest.fix_quality)
+
+
+def _fix_mode_value(c):
+    if c.latest is None or c.latest.fix_mode is None:
+        return None
+    return {1: FIX_MODE_NO_FIX, 2: FIX_MODE_2D, 3: FIX_MODE_3D}.get(
+        c.latest.fix_mode
+    )
+
+
+def _accuracy_h_value(c):
+    if c.latest is None or c.latest.hdop is None:
+        return None
+    return round(c.latest.hdop * DOP_TO_METRES, 1)
+
+
+def _accuracy_v_value(c):
+    if c.latest is None or c.latest.vdop is None:
+        return None
+    return round(c.latest.vdop * DOP_TO_METRES, 1)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -34,32 +86,22 @@ class CaravanSensorDescription(SensorEntityDescription):
     """Sensor description with a value getter against the coordinator."""
 
     value_fn: Callable[[CaravanLocationCoordinator], object]
-    # Which dispatcher signal triggers a write. Most react to LOCATION_UPDATED;
-    # geocode-derived sensors react to GEOCODE_UPDATED instead so they don't
-    # flicker on every GPS update.
     update_signal: str = SIGNAL_LOCATION_UPDATED
 
 
 SENSORS: tuple[CaravanSensorDescription, ...] = (
-    # GPS-derived
     CaravanSensorDescription(
-        key="latitude",
-        translation_key="latitude",
-        icon="mdi:latitude",
+        key="latitude", translation_key="latitude", icon="mdi:latitude",
         suggested_display_precision=6,
         value_fn=lambda c: c.latest.latitude if c.latest else None,
     ),
     CaravanSensorDescription(
-        key="longitude",
-        translation_key="longitude",
-        icon="mdi:longitude",
+        key="longitude", translation_key="longitude", icon="mdi:longitude",
         suggested_display_precision=6,
         value_fn=lambda c: c.latest.longitude if c.latest else None,
     ),
     CaravanSensorDescription(
-        key="elevation",
-        translation_key="elevation",
-        icon="mdi:elevation-rise",
+        key="elevation", translation_key="elevation", icon="mdi:elevation-rise",
         native_unit_of_measurement=UnitOfLength.METERS,
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -67,9 +109,7 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         value_fn=lambda c: c.latest.elevation if c.latest else None,
     ),
     CaravanSensorDescription(
-        key="speed",
-        translation_key="speed",
-        icon="mdi:speedometer",
+        key="speed", translation_key="speed", icon="mdi:speedometer",
         native_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         device_class=SensorDeviceClass.SPEED,
         state_class=SensorStateClass.MEASUREMENT,
@@ -77,61 +117,104 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         value_fn=lambda c: c.latest.speed_kmh if c.latest else None,
     ),
     CaravanSensorDescription(
-        key="status",
-        translation_key="status",
-        icon="mdi:caravan",
+        key="heading", translation_key="heading", icon="mdi:compass",
+        device_class=SensorDeviceClass.ENUM,
+        options=HEADING_DIRECTIONS,
+        value_fn=_heading_value,
+    ),
+    CaravanSensorDescription(
+        key="bearing", translation_key="bearing", icon="mdi:compass-outline",
+        native_unit_of_measurement=DEGREE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=_bearing_value,
+    ),
+    CaravanSensorDescription(
+        key="status", translation_key="status", icon="mdi:caravan",
+        device_class=SensorDeviceClass.ENUM,
+        options=STATUS_OPTIONS,
         value_fn=lambda c: c.status,
     ),
     CaravanSensorDescription(
-        key="fix_quality",
-        translation_key="fix_quality",
-        icon="mdi:crosshairs-gps",
-        value_fn=lambda c: c.latest.fix_quality if c.latest else None,
+        key="gradient", translation_key="gradient", icon="mdi:slope-uphill",
+        device_class=SensorDeviceClass.ENUM,
+        options=GRADIENT_OPTIONS,
+        value_fn=lambda c: c.gradient,
     ),
     CaravanSensorDescription(
-        key="satellites_used",
-        translation_key="satellites_used",
-        icon="mdi:satellite-uplink",
-        native_unit_of_measurement="sat",
+        key="climb_rate", translation_key="climb_rate", icon="mdi:slope-uphill",
+        native_unit_of_measurement="m/s",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        value_fn=lambda c: c.climb_ms,
+    ),
+    CaravanSensorDescription(
+        key="fix_quality", translation_key="fix_quality",
+        icon="mdi:crosshairs-gps",
+        device_class=SensorDeviceClass.ENUM,
+        options=FIX_QUALITY_OPTIONS,
+        value_fn=_fix_quality_value,
+    ),
+    CaravanSensorDescription(
+        key="fix_mode", translation_key="fix_mode", icon="mdi:crosshairs",
+        device_class=SensorDeviceClass.ENUM,
+        options=FIX_MODE_OPTIONS,
+        value_fn=_fix_mode_value,
+    ),
+    CaravanSensorDescription(
+        key="satellites_used", translation_key="satellites_used",
+        icon="mdi:satellite-uplink", native_unit_of_measurement="sat",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda c: c.latest.satellites_used if c.latest else None,
     ),
     CaravanSensorDescription(
-        key="satellites_visible",
-        translation_key="satellites_visible",
-        icon="mdi:satellite-variant",
-        native_unit_of_measurement="sat",
+        key="satellites_visible", translation_key="satellites_visible",
+        icon="mdi:satellite-variant", native_unit_of_measurement="sat",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda c: c.latest.satellites_visible if c.latest else None,
     ),
     CaravanSensorDescription(
-        key="hdop",
-        translation_key="hdop",
-        icon="mdi:target",
+        key="hdop", translation_key="hdop", icon="mdi:target",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         value_fn=lambda c: c.latest.hdop if c.latest else None,
     ),
-
-    # Geocode-derived — separate update signal so they don't flicker
     CaravanSensorDescription(
-        key="city",
-        translation_key="city",
-        icon="mdi:city",
+        key="accuracy_horizontal", translation_key="accuracy_horizontal",
+        icon="mdi:target-variant",
+        native_unit_of_measurement=UnitOfLength.METERS,
+        device_class=SensorDeviceClass.DISTANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=_accuracy_h_value,
+    ),
+    CaravanSensorDescription(
+        key="accuracy_vertical", translation_key="accuracy_vertical",
+        icon="mdi:target-variant",
+        native_unit_of_measurement=UnitOfLength.METERS,
+        device_class=SensorDeviceClass.DISTANCE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=_accuracy_v_value,
+    ),
+    CaravanSensorDescription(
+        key="gps_time", translation_key="gps_time", icon="mdi:clock-digital",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda c: c.latest.gps_time if c.latest else None,
+    ),
+    # Geocode-derived
+    CaravanSensorDescription(
+        key="city", translation_key="city", icon="mdi:city",
         update_signal=SIGNAL_GEOCODE_UPDATED,
         value_fn=lambda c: c.geocode.city if c.geocode else None,
     ),
     CaravanSensorDescription(
-        key="state",
-        translation_key="state",
-        icon="mdi:map",
+        key="state", translation_key="state", icon="mdi:map",
         update_signal=SIGNAL_GEOCODE_UPDATED,
         value_fn=lambda c: c.geocode.state if c.geocode else None,
     ),
     CaravanSensorDescription(
-        key="country",
-        translation_key="country",
-        icon="mdi:earth",
+        key="country", translation_key="country", icon="mdi:earth",
         update_signal=SIGNAL_GEOCODE_UPDATED,
         value_fn=lambda c: c.geocode.country if c.geocode else None,
     ),
@@ -191,9 +274,20 @@ class CaravanSensor(SensorEntity):
         return self.entity_description.value_fn(self.coordinator)
 
     @property
+    def extra_state_attributes(self) -> dict | None:
+        # Heading sensor exposes bearing_deg attribute (matches old MQTT
+        # add-on idiom — existing templates use state_attr(..., 'bearing_deg')).
+        if self.entity_description.key == "heading":
+            if (
+                self.coordinator.latest is None
+                or self.coordinator.latest.heading_deg is None
+            ):
+                return None
+            return {"bearing_deg": round(self.coordinator.latest.heading_deg, 1)}
+        return None
+
+    @property
     def available(self) -> bool:
-        # Status sensor stays available always (shows "Unknown" when no fix).
-        # Geocode sensors only available once we have a result.
         if self.entity_description.key == "status":
             return True
         if self.entity_description.update_signal == SIGNAL_GEOCODE_UPDATED:

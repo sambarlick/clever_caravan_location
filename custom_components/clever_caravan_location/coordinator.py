@@ -1,19 +1,8 @@
-"""Coordinator: canonical state + action layer.
-
-Subscribes to a single source adapter. Two responsibilities:
-
-1. Read side: derive caravan status, expose latest fix to sensors.
-2. Action side: when the fix changes meaningfully, update HA core
-   state — zone.home location, system timezone, reverse-geocode.
-
-Each action throttles independently — different geographic deltas
-matter for different things. set_location reacts to caravan-scale
-movement. Timezone updates only when crossing state-border-scale
-distances. Nominatim respects the public rate-limit policy.
-"""
+"""Coordinator: canonical state + action layer."""
 
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timedelta
 import logging
 
@@ -23,18 +12,23 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CLIMB_GRADIENT_THRESHOLD_MS,
+    CLIMB_WINDOW_S,
     DOMAIN,
     GEOCODE_MIN_DELTA_DEG,
     GEOCODE_MIN_INTERVAL_S,
-    PARKED_AFTER_MINUTES,
+    GRADIENT_CLIMBING,
+    GRADIENT_DESCENDING,
+    GRADIENT_LEVEL,
+    PARKED_UP_AFTER_MINUTES,
     SET_LOCATION_MIN_DELTA_DEG,
     SIGNAL_GEOCODE_UPDATED,
     SIGNAL_LOCATION_UPDATED,
-    SPEED_MOVING_THRESHOLD,
-    SPEED_STATIONARY_THRESHOLD,
-    STATUS_MOVING,
-    STATUS_PARKED,
-    STATUS_STATIONARY,
+    SPEED_DRIVING_THRESHOLD,
+    SPEED_NOT_DRIVING_THRESHOLD,
+    STATUS_DRIVING,
+    STATUS_NOT_DRIVING,
+    STATUS_PARKED_UP,
     STATUS_UNKNOWN,
     TIMEZONE_MIN_DELTA_DEG,
 )
@@ -51,13 +45,15 @@ class CaravanLocationCoordinator:
         self.hass = hass
         self.source = source
 
-        # Read state
         self._latest: LocationFix | None = None
-        self._status: str = STATUS_UNKNOWN
+        self._status: str | None = STATUS_UNKNOWN
         self._last_movement: datetime | None = None
         self._geocode: GeocodeResult | None = None
 
-        # Action throttles
+        # Climb derivation: rolling buffer of (timestamp, elevation) samples
+        self._elev_buffer: deque[tuple[datetime, float]] = deque()
+        self._climb_ms: float | None = None
+
         self._last_set_location: tuple[float, float] | None = None
         self._last_timezone: tuple[float, float] | None = None
         self._last_geocode_at: datetime | None = None
@@ -65,15 +61,27 @@ class CaravanLocationCoordinator:
 
         source.subscribe(self._on_fix)
 
-    # --- Public read API ---
-
     @property
     def latest(self) -> LocationFix | None:
         return self._latest
 
     @property
-    def status(self) -> str:
+    def status(self) -> str | None:
         return self._status
+
+    @property
+    def climb_ms(self) -> float | None:
+        return self._climb_ms
+
+    @property
+    def gradient(self) -> str | None:
+        if self._climb_ms is None:
+            return None
+        if self._climb_ms > CLIMB_GRADIENT_THRESHOLD_MS:
+            return GRADIENT_CLIMBING
+        if self._climb_ms < -CLIMB_GRADIENT_THRESHOLD_MS:
+            return GRADIENT_DESCENDING
+        return GRADIENT_LEVEL
 
     @property
     def is_healthy(self) -> bool:
@@ -86,10 +94,7 @@ class CaravanLocationCoordinator:
     def geocode(self) -> GeocodeResult | None:
         return self._geocode
 
-    # --- Public action API ---
-
     async def async_force_update(self) -> None:
-        """Force all action paths on the latest fix, bypassing throttles."""
         if self._latest is None or not self._latest.valid:
             _LOGGER.warning("Cannot force update: no valid fix yet")
             return
@@ -98,12 +103,11 @@ class CaravanLocationCoordinator:
         await self._update_timezone(fix, force=True)
         await self._update_geocode(fix, force=True)
 
-    # --- Internal: fix dispatch ---
-
     @callback
     def _on_fix(self, fix: LocationFix) -> None:
         self._latest = fix
         self._update_status(fix)
+        self._update_climb(fix)
         async_dispatcher_send(self.hass, SIGNAL_LOCATION_UPDATED)
 
         if fix.valid:
@@ -114,8 +118,6 @@ class CaravanLocationCoordinator:
         await self._update_timezone(fix)
         await self._update_geocode(fix)
 
-    # --- Status derivation ---
-
     def _update_status(self, fix: LocationFix) -> None:
         if not fix.valid:
             self._status = STATUS_UNKNOWN
@@ -125,30 +127,50 @@ class CaravanLocationCoordinator:
         now = fix.timestamp
 
         if speed is None:
-            self._status = STATUS_STATIONARY
+            self._status = STATUS_NOT_DRIVING
             return
 
-        if speed >= SPEED_MOVING_THRESHOLD:
-            self._status = STATUS_MOVING
+        if speed >= SPEED_DRIVING_THRESHOLD:
+            self._status = STATUS_DRIVING
             self._last_movement = now
             return
 
-        if speed >= SPEED_STATIONARY_THRESHOLD:
-            self._status = STATUS_STATIONARY
+        if speed >= SPEED_NOT_DRIVING_THRESHOLD:
+            self._status = STATUS_NOT_DRIVING
             return
 
         if self._last_movement is None:
             self._last_movement = now
-            self._status = STATUS_STATIONARY
+            self._status = STATUS_NOT_DRIVING
             return
 
         dwell = now - self._last_movement
-        if dwell >= timedelta(minutes=PARKED_AFTER_MINUTES):
-            self._status = STATUS_PARKED
+        if dwell >= timedelta(minutes=PARKED_UP_AFTER_MINUTES):
+            self._status = STATUS_PARKED_UP
         else:
-            self._status = STATUS_STATIONARY
+            self._status = STATUS_NOT_DRIVING
 
-    # --- Action: zone.home ---
+    def _update_climb(self, fix: LocationFix) -> None:
+        """Compute climb rate (m/s) from rolling elevation samples."""
+        if not fix.valid or fix.elevation is None:
+            return
+
+        now = fix.timestamp
+        self._elev_buffer.append((now, fix.elevation))
+
+        cutoff = now - timedelta(seconds=CLIMB_WINDOW_S)
+        while self._elev_buffer and self._elev_buffer[0][0] < cutoff:
+            self._elev_buffer.popleft()
+
+        if len(self._elev_buffer) < 2:
+            self._climb_ms = None
+            return
+
+        oldest_t, oldest_e = self._elev_buffer[0]
+        dt = (now - oldest_t).total_seconds()
+        if dt <= 0:
+            return
+        self._climb_ms = (fix.elevation - oldest_e) / dt
 
     async def _update_zone_home(
         self, fix: LocationFix, force: bool = False
@@ -181,8 +203,6 @@ class CaravanLocationCoordinator:
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Failed to update zone.home")
 
-    # --- Action: timezone (via tzfpy) ---
-
     async def _update_timezone(
         self, fix: LocationFix, force: bool = False
     ) -> None:
@@ -192,9 +212,6 @@ class CaravanLocationCoordinator:
             return
 
         try:
-            # tzfpy's get_tz is module-level and lazy-inits its data on
-            # first call. Run in executor — first call may take a moment
-            # while the Rust extension loads its polygon data.
             from tzfpy import get_tz
             tz_name = await self.hass.async_add_executor_job(
                 get_tz, fix.longitude, fix.latitude,
@@ -205,8 +222,6 @@ class CaravanLocationCoordinator:
             self._last_timezone = (fix.latitude, fix.longitude)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Failed to update system timezone")
-
-    # --- Action: reverse-geocode ---
 
     async def _update_geocode(
         self, fix: LocationFix, force: bool = False
@@ -241,8 +256,6 @@ class CaravanLocationCoordinator:
                 result.city, result.state, result.country,
             )
 
-    # --- Helpers ---
-
     @staticmethod
     def _delta_exceeds(
         last: tuple[float, float] | None,
@@ -257,5 +270,7 @@ class CaravanLocationCoordinator:
         )
 
 
-def get_coordinator(hass: HomeAssistant, entry_id: str) -> CaravanLocationCoordinator:
+def get_coordinator(
+    hass: HomeAssistant, entry_id: str
+) -> CaravanLocationCoordinator:
     return hass.data[DOMAIN][entry_id]["coordinator"]

@@ -3,17 +3,19 @@
 Reads NMEA 0183 sentences from a USB GPS dongle via serial connection.
 Self-contained — no gpsd, no add-on, no external broker. Works on HAOS.
 
-Parses two NMEA sentence types:
+Parses NMEA sentences:
 - GGA: position, fix quality, satellites used, HDOP, altitude
-- RMC: position, speed, validity flag
+- RMC: position, speed, validity flag, heading, GPS time
+- GSV: visible satellite count
+- GSA: fix mode (2D/3D), VDOP
 
-Auto-reconnects on dongle unplug/replug. Emits a LocationFix per
-parsed sentence with valid data; coordinator does the throttling.
+Auto-reconnects on dongle unplug/replug.
 """
 
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import logging
 
 import pynmea2
@@ -45,16 +47,18 @@ class UsbSource(LocationSource):
         super().__init__(hass, config)
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
-        # Aggregated state — different NMEA sentences carry different fields,
-        # so we accumulate and emit on each parsed sentence with valid data.
         self._lat: float | None = None
         self._lon: float | None = None
         self._alt: float | None = None
         self._speed_kmh: float | None = None
         self._fix_quality: int = 0
+        self._fix_mode: int | None = None
         self._sats_used: int = 0
         self._sats_visible: int = 0
         self._hdop: float | None = None
+        self._vdop: float | None = None
+        self._heading_deg: float | None = None
+        self._gps_time: datetime | None = None
         self._has_fix = False
 
     async def async_start(self) -> None:
@@ -72,7 +76,6 @@ class UsbSource(LocationSource):
             self._task = None
 
     async def _read_loop(self) -> None:
-        """Outer loop: handles connect, disconnect, retry."""
         device = self.config[CONF_USB_DEVICE]
         baudrate = int(self.config.get(CONF_USB_BAUDRATE, DEFAULT_BAUDRATE))
 
@@ -99,7 +102,6 @@ class UsbSource(LocationSource):
                     exc, _RECONNECT_DELAY_S,
                 )
 
-            # Wait before retry, but bail early if we're being stopped
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(), timeout=_RECONNECT_DELAY_S
@@ -108,7 +110,6 @@ class UsbSource(LocationSource):
                 pass
 
     async def _read_sentences(self, reader: asyncio.StreamReader) -> None:
-        """Inner loop: read lines, parse NMEA, dispatch to handlers."""
         while not self._stop_event.is_set():
             try:
                 line_bytes = await reader.readline()
@@ -116,7 +117,6 @@ class UsbSource(LocationSource):
                 raise ConnectionError(f"Serial read failed: {exc}") from exc
 
             if not line_bytes:
-                # EOF — typically dongle unplugged
                 raise ConnectionError("EOF on serial port (dongle unplugged?)")
 
             line = line_bytes.decode("ascii", errors="replace").strip()
@@ -126,7 +126,7 @@ class UsbSource(LocationSource):
             try:
                 msg = pynmea2.parse(line)
             except pynmea2.ParseError:
-                continue  # malformed sentence — ignore
+                continue
 
             sentence_type = type(msg).__name__
             if sentence_type == "GGA":
@@ -135,8 +135,8 @@ class UsbSource(LocationSource):
                 self._handle_rmc(msg)
             elif sentence_type == "GSV":
                 self._handle_gsv(msg)
-            # Other sentence types (GLL, VTG, GSA) are ignored — GGA + RMC
-            # cover everything we care about.
+            elif sentence_type == "GSA":
+                self._handle_gsa(msg)
 
     def _handle_gga(self, msg) -> None:
         try:
@@ -159,7 +159,7 @@ class UsbSource(LocationSource):
 
     def _handle_rmc(self, msg) -> None:
         try:
-            if msg.status != "A":  # 'A' = active/valid, 'V' = void/warning
+            if msg.status != "A":  # 'A' = active/valid, 'V' = void
                 return
             if msg.latitude:
                 self._lat = float(msg.latitude)
@@ -167,6 +167,21 @@ class UsbSource(LocationSource):
                 self._lon = float(msg.longitude)
             if msg.spd_over_grnd is not None:
                 self._speed_kmh = float(msg.spd_over_grnd) * _KNOTS_TO_KMH
+            tc = getattr(msg, "true_course", None)
+            if tc is not None and tc != "":
+                try:
+                    self._heading_deg = float(tc) % 360.0
+                except (ValueError, TypeError):
+                    pass
+            ds = getattr(msg, "datestamp", None)
+            ts = getattr(msg, "timestamp", None)
+            if ds is not None and ts is not None:
+                try:
+                    self._gps_time = datetime.combine(ds, ts).replace(
+                        tzinfo=timezone.utc
+                    )
+                except (TypeError, ValueError):
+                    pass
             self._has_fix = True
             self._emit()
         except (ValueError, TypeError) as exc:
@@ -179,6 +194,18 @@ class UsbSource(LocationSource):
         except (ValueError, TypeError):
             pass
 
+    def _handle_gsa(self, msg) -> None:
+        """$GPGSA gives 2D/3D fix mode plus VDOP."""
+        try:
+            mode_fix = getattr(msg, "mode_fix_type", None)
+            if mode_fix is not None and mode_fix != "":
+                self._fix_mode = int(mode_fix)
+            vdop = getattr(msg, "vdop", None)
+            if vdop is not None and vdop != "":
+                self._vdop = float(vdop)
+        except (ValueError, TypeError) as exc:
+            _LOGGER.debug("Bad GSA sentence: %s", exc)
+
     def _emit(self) -> None:
         if not self._has_fix or self._lat is None or self._lon is None:
             return
@@ -186,7 +213,7 @@ class UsbSource(LocationSource):
         valid = (
             LAT_MIN <= self._lat <= LAT_MAX
             and LON_MIN <= self._lon <= LON_MAX
-            and not (self._lat == 0.0 and self._lon == 0.0)  # Null Island
+            and not (self._lat == 0.0 and self._lon == 0.0)
             and self._fix_quality > 0
         )
 
@@ -198,7 +225,11 @@ class UsbSource(LocationSource):
             timestamp=dt_util.utcnow(),
             valid=valid,
             fix_quality=self._fix_quality,
+            fix_mode=self._fix_mode,
             satellites_used=self._sats_used,
             satellites_visible=self._sats_visible,
             hdop=self._hdop,
+            vdop=self._vdop,
+            heading_deg=self._heading_deg,
+            gps_time=self._gps_time,
         ))
