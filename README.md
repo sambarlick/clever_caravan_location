@@ -1,32 +1,39 @@
-# Clever Caravan Location
+# 🚐 Clever Caravan Location for Home Assistant
 
-Home Assistant integration that tracks caravan/RV/van location, speed, and
-GPS health. Built for mobile HA installs where the host moves with the
-vehicle.
+A smart, logic-gated GPS tracking integration designed specifically for caravans, RVs, and mobile homelabs (like a Victron Cerbo GX payload). 
 
-## Sources
+Unlike standard GPS trackers that continuously spam Home Assistant with coordinate jitter while parked, this integration uses an intelligent "Action Layer" to freeze updates, preserve database health, and smartly manage reverse-geocoding.
 
-- **USB GPS dongle** plugged into the HA host (default)
-- **Entity-based** — read from existing HA entities (Starlink, device_tracker, etc.)
-- **Manual** — input_number helpers for testing
+## ✨ Features
 
-## Sensors
+* **Anti-Jitter Parked Snapshots:** When the caravan stops moving, the integration takes a snapshot of the exact coordinates and freezes the latitude/longitude display sensors. This prevents GPS drift from polluting your Home Assistant recorder, history graphs, and UI.
+* **Granular Reverse Geocoding:** Uses OSM Nominatim to resolve location data, featuring an Australia-aware cascading fallback that prioritizes Suburb/Town level granularity over generic City data.
+* **Smart Action Gating:** Nominatim API calls, `zone.home` updates, and system timezone changes are strictly halted while parked to prevent API rate-limiting and unnecessary system calls.
+* **Cold-Boot Safety:** Intentionally waits for the *first live GPS ping* after a Home Assistant reboot to seed its location data. It will never restore a stale database value, ensuring HA doesn't display a false location if the caravan was moved while the server was offline.
+* **Rich Telemetry:** Exposes comprehensive sensors including Speed, Heading, Bearing, Climb Rate (m/s), Elevation, and GPS Atomic Time (forced UTC).
 
-Latitude, Longitude, Elevation, Speed, Status (Moving/Stationary/Parked),
-GPS fix quality, satellites used/visible, HDOP, GPS healthy (binary).
+## 📥 Installation via HACS
 
-## Roadmap
+This integration is installed as a Custom Repository in the Home Assistant Community Store (HACS).
 
-- v0.2: zone.home update, system timezone update, reverse-geocoding
-- v0.3: MQTT source for off-host GPS
+1. Open **HACS** in Home Assistant.
+2. Click the three dots in the top right corner and select **Custom repositories**.
+3. Add your repository URL: `https://github.com/sambarlick/clever_caravan_location`
+4. Select **Integration** as the category and click **Add**.
+5. Click on **Clever Caravan Location** in the HACS UI and click **Download**.
+6. Restart Home Assistant.
+7. Navigate to **Settings > Devices & Services > Add Integration** and search for "Clever Caravan Location".
 
-## Installation
+*(Note: Due to a current upstream bug in HACS regarding local brand assets, the integration icon may appear as a default HACS logo within the HACS dashboard. The correct custom icon will display natively in your Home Assistant Devices & Services page).*
 
-HACS → ⋮ → Custom repositories →
-`https://github.com/sambarlick/clever_caravan_location`
-Type: Integration → Add. Restart HA. Settings → Devices & Services →
-Add Integration → Clever Caravan Location.
+## 📡 Sensor Overview
 
-## Companion
+| Sensor | Description |
+|--------|-------------|
+| **Status** | Driving, Not Driving, or Parked Up. |
+| **Latitude / Longitude** | Snapshotted when parked to prevent jitter. |
+| **Caravan City** | Cascaded suburb/town resolution. |
+| **Climb Rate & Gradient** | Calculated m/s based on a rolling elevation buffer. |
+| **GPS Atomic Time** | Unformatted UTC string directly from the satellites. |
+| **Accuracy** | Horizontal and Vertical DOP to meters. |
 
-[Clever Caravan Weather](https://github.com/sambarlick/clever_caravan_integrations) — caravan-following BoM weather.
