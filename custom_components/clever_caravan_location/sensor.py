@@ -93,12 +93,12 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
     CaravanSensorDescription(
         key="latitude", translation_key="latitude", icon="mdi:latitude",
         suggested_display_precision=6,
-        value_fn=lambda c: c.latest.latitude if c.latest else None,
+        value_fn=lambda c: c.display_latitude,
     ),
     CaravanSensorDescription(
         key="longitude", translation_key="longitude", icon="mdi:longitude",
         suggested_display_precision=6,
-        value_fn=lambda c: c.latest.longitude if c.latest else None,
+        value_fn=lambda c: c.display_longitude,
     ),
     CaravanSensorDescription(
         key="elevation", translation_key="elevation", icon="mdi:elevation-rise",
@@ -198,9 +198,13 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         value_fn=_accuracy_v_value,
     ),
     CaravanSensorDescription(
-        key="gps_time", translation_key="gps_time", icon="mdi:clock-digital",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda c: c.latest.gps_time if c.latest else None,
+        key="gps_atomic_time", translation_key="gps_atomic_time", icon="mdi:clock-digital",
+        # Device class removed so HA doesn't auto-convert to local timezone
+        value_fn=lambda c: (
+            c.latest.gps_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+            if hasattr(c.latest.gps_time, "strftime")
+            else str(c.latest.gps_time).replace("T", " ")[:19] + " UTC"
+        ) if c.latest and c.latest.gps_time else None,
     ),
     # Geocode-derived
     CaravanSensorDescription(

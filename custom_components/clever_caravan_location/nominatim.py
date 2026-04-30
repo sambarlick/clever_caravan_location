@@ -68,17 +68,24 @@ async def reverse_geocode(
     if not address:
         return None
 
-    # Cascading fallback for "city" — Australian remote areas live under
-    # different keys (locality, hamlet, town) than urban names (city).
+    # Cascading fallback matching HA template logic exactly.
+    # Prioritizes granular locations (suburb) before falling back to city/region.
     city = (
-        address.get("city")
-        or address.get("town")
-        or address.get("village")
-        or address.get("hamlet")
-        or address.get("locality")
+        address.get("isolated_dwelling")
+        or address.get("farm")
+        or address.get("neighbourhood")
         or address.get("suburb")
+        or address.get("hamlet")
+        or address.get("village")
+        or address.get("town")
+        or address.get("city_district")
+        or address.get("city")
+        or address.get("locality")
         or address.get("municipality")
         or address.get("county")
+        or address.get("state_district")
+        or address.get("region")
+        or "Unknown"
     )
 
     return GeocodeResult(
