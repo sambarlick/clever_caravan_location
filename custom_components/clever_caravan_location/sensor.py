@@ -146,7 +146,7 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         native_unit_of_measurement="m/s",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
-        value_fn=lambda c: c.climb_ms,
+        value_fn=lambda c: c.display_climb_ms,
     ),
     CaravanSensorDescription(
         key="fix_quality", translation_key="fix_quality",

@@ -52,14 +52,12 @@ class CaravanLocationCoordinator:
         self._elev_buffer: deque[tuple[datetime, float]] = deque()
         self._climb_ms: float | None = None
 
-        # Dejitter snapshots (Elevation & Accuracy added for v0.2.8)
         self._snapshot_lat: float | None = None
         self._snapshot_lon: float | None = None
         self._snapshot_elevation: float | None = None
         self._snapshot_accuracy_h: float | None = None
         self._snapshot_accuracy_v: float | None = None
 
-        # Action layer gating
         self._cold_start_bootstrap_pending = True
         self._last_set_location: tuple[float, float] | None = None
         self._last_timezone: tuple[float, float] | None = None
@@ -117,16 +115,20 @@ class CaravanLocationCoordinator:
         return 0.0
 
     @property
-    def climb_ms(self) -> float | None:
-        return self._climb_ms
+    def display_climb_ms(self) -> float | None:
+        # Dejitter climb rate: 0.0 when stationary
+        if self._status == STATUS_DRIVING:
+            return self._climb_ms
+        return 0.0
 
     @property
     def gradient(self) -> str | None:
-        if self._climb_ms is None:
+        climb = self.display_climb_ms
+        if climb is None:
             return None
-        if self._climb_ms > CLIMB_GRADIENT_THRESHOLD_MS:
+        if climb > CLIMB_GRADIENT_THRESHOLD_MS:
             return GRADIENT_CLIMBING
-        if self._climb_ms < -CLIMB_GRADIENT_THRESHOLD_MS:
+        if climb < -CLIMB_GRADIENT_THRESHOLD_MS:
             return GRADIENT_DESCENDING
         return GRADIENT_LEVEL
 
@@ -204,13 +206,10 @@ class CaravanLocationCoordinator:
     def _update_snapshot(self, fix: LocationFix) -> None:
         if not fix.valid:
             return
-        
-        # Snapshot trigger (Driving or Startup Override)
         if self._status == STATUS_DRIVING or self._snapshot_lat is None:
             self._snapshot_lat = fix.latitude
             self._snapshot_lon = fix.longitude
             self._snapshot_elevation = fix.elevation
-            
             if fix.hdop is not None:
                 self._snapshot_accuracy_h = round(fix.hdop * DOP_TO_METRES, 1)
             if fix.vdop is not None:
