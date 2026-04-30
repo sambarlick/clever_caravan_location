@@ -43,7 +43,7 @@ async def reverse_geocode(
         "lat": f"{latitude:.6f}",
         "lon": f"{longitude:.6f}",
         "format": "jsonv2",
-        "zoom": "10",
+        "zoom": "18",
         "addressdetails": "1",
     }
     headers = {"User-Agent": NOMINATIM_USER_AGENT}
