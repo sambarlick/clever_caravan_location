@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import logging
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
@@ -236,7 +237,7 @@ async def async_setup_entry(
     )
 
 
-class CaravanSensor(SensorEntity):
+class CaravanSensor(RestoreSensor):
     """Generic caravan sensor reading from the coordinator."""
 
     _attr_has_entity_name = True
@@ -259,8 +260,15 @@ class CaravanSensor(SensorEntity):
             manufacturer="Clever Caravan",
             model="Location",
         )
+        self._restored_native_value = None
 
     async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        
+        # Reach into HA's database to grab the last known state on boot
+        if (last_sensor_data := await self.async_get_last_sensor_data()) is not None:
+            self._restored_native_value = last_sensor_data.native_value
+
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
@@ -275,12 +283,15 @@ class CaravanSensor(SensorEntity):
 
     @property
     def native_value(self):
-        return self.entity_description.value_fn(self.coordinator)
+        # Prefer live/snapshotted value from the coordinator
+        val = self.entity_description.value_fn(self.coordinator)
+        if val is not None:
+            return val
+        # Fall back to the database value if coordinator is empty (e.g., cold boot)
+        return self._restored_native_value
 
     @property
     def extra_state_attributes(self) -> dict | None:
-        # Heading sensor exposes bearing_deg attribute (matches old MQTT
-        # add-on idiom — existing templates use state_attr(..., 'bearing_deg')).
         if self.entity_description.key == "heading":
             if (
                 self.coordinator.latest is None
@@ -294,6 +305,12 @@ class CaravanSensor(SensorEntity):
     def available(self) -> bool:
         if self.entity_description.key == "status":
             return True
+            
+        # If we have a live value OR a restored value from the DB, the sensor is available
+        if self.native_value is not None:
+            return True
+            
         if self.entity_description.update_signal == SIGNAL_GEOCODE_UPDATED:
             return self.coordinator.geocode is not None
+            
         return self.coordinator.latest is not None
