@@ -114,7 +114,7 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         device_class=SensorDeviceClass.SPEED,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
-        value_fn=lambda c: c.latest.speed_kmh if c.latest else None,
+        value_fn=lambda c: c.display_speed,
     ),
     CaravanSensorDescription(
         key="heading", translation_key="heading", icon="mdi:compass",
