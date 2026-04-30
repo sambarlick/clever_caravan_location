@@ -106,7 +106,7 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
-        value_fn=lambda c: c.latest.elevation if c.latest else None,
+        value_fn=lambda c: c.display_elevation,
     ),
     CaravanSensorDescription(
         key="speed", translation_key="speed", icon="mdi:speedometer",
@@ -186,7 +186,7 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
-        value_fn=_accuracy_h_value,
+        value_fn=lambda c: c.display_accuracy_h,
     ),
     CaravanSensorDescription(
         key="accuracy_vertical", translation_key="accuracy_vertical",
@@ -195,7 +195,7 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
-        value_fn=_accuracy_v_value,
+        value_fn=lambda c: c.display_accuracy_v,
     ),
     CaravanSensorDescription(
         key="gps_atomic_time", translation_key="gps_atomic_time", icon="mdi:clock-digital",

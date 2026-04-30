@@ -15,6 +15,7 @@ from .const import (
     CLIMB_GRADIENT_THRESHOLD_MS,
     CLIMB_WINDOW_S,
     DOMAIN,
+    DOP_TO_METRES,
     GEOCODE_MIN_DELTA_DEG,
     GEOCODE_MIN_INTERVAL_S,
     GRADIENT_CLIMBING,
@@ -51,9 +52,12 @@ class CaravanLocationCoordinator:
         self._elev_buffer: deque[tuple[datetime, float]] = deque()
         self._climb_ms: float | None = None
 
-        # Dejitter snapshots (mirrors gpsd2mqtt.py startup_override & parked logic)
+        # Dejitter snapshots (Elevation & Accuracy added for v0.2.8)
         self._snapshot_lat: float | None = None
         self._snapshot_lon: float | None = None
+        self._snapshot_elevation: float | None = None
+        self._snapshot_accuracy_h: float | None = None
+        self._snapshot_accuracy_v: float | None = None
 
         # Action layer gating
         self._cold_start_bootstrap_pending = True
@@ -85,8 +89,29 @@ class CaravanLocationCoordinator:
         return self._snapshot_lon
 
     @property
+    def display_elevation(self) -> float | None:
+        if self._status == STATUS_DRIVING:
+            return self._latest.elevation if self._latest else None
+        return self._snapshot_elevation
+
+    @property
+    def display_accuracy_h(self) -> float | None:
+        if self._status == STATUS_DRIVING:
+            if self._latest and self._latest.hdop is not None:
+                return round(self._latest.hdop * DOP_TO_METRES, 1)
+            return None
+        return self._snapshot_accuracy_h
+
+    @property
+    def display_accuracy_v(self) -> float | None:
+        if self._status == STATUS_DRIVING:
+            if self._latest and self._latest.vdop is not None:
+                return round(self._latest.vdop * DOP_TO_METRES, 1)
+            return None
+        return self._snapshot_accuracy_v
+
+    @property
     def display_speed(self) -> float | None:
-        # Matches gpsd2mqtt.py: forces 0.0 when parked to hide jitter
         if self._status == STATUS_DRIVING:
             return self._latest.speed_kmh if self._latest else None
         return 0.0
@@ -179,10 +204,17 @@ class CaravanLocationCoordinator:
     def _update_snapshot(self, fix: LocationFix) -> None:
         if not fix.valid:
             return
-        # Matches gpsd2mqtt.py: updates if moving OR if snapshot is empty (startup_override)
+        
+        # Snapshot trigger (Driving or Startup Override)
         if self._status == STATUS_DRIVING or self._snapshot_lat is None:
             self._snapshot_lat = fix.latitude
             self._snapshot_lon = fix.longitude
+            self._snapshot_elevation = fix.elevation
+            
+            if fix.hdop is not None:
+                self._snapshot_accuracy_h = round(fix.hdop * DOP_TO_METRES, 1)
+            if fix.vdop is not None:
+                self._snapshot_accuracy_v = round(fix.vdop * DOP_TO_METRES, 1)
 
     def _update_climb(self, fix: LocationFix) -> None:
         if not fix.valid or fix.elevation is None:
