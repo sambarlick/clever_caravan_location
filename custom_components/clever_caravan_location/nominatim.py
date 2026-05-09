@@ -26,6 +26,7 @@ class GeocodeResult:
     state: str | None
     country: str | None
     country_code: str | None
+    postcode: str | None
     raw_address: dict | None
 
 
@@ -93,5 +94,6 @@ async def reverse_geocode(
         state=address.get("state"),
         country=address.get("country"),
         country_code=address.get("country_code"),
+        postcode=address.get("postcode"),
         raw_address=address,
     )

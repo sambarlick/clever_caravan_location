@@ -220,6 +220,11 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         update_signal=SIGNAL_GEOCODE_UPDATED,
         value_fn=lambda c: c.geocode.country if c.geocode else None,
     ),
+    CaravanSensorDescription(
+        key="postcode", translation_key="postcode", icon="mdi:mailbox",
+        update_signal=SIGNAL_GEOCODE_UPDATED,
+        value_fn=lambda c: c.geocode.postcode if c.geocode else None,
+    ),
 )
 
 
