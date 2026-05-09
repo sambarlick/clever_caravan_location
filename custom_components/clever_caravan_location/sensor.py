@@ -30,6 +30,7 @@ from .const import (
     FIX_QUALITY_OPTIONS,
     GRADIENT_OPTIONS,
     HEADING_DIRECTIONS,
+    SIGNAL_ABS_UPDATED,
     SIGNAL_GEOCODE_UPDATED,
     SIGNAL_LOCATION_UPDATED,
     STATUS_OPTIONS,
@@ -225,6 +226,35 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         update_signal=SIGNAL_GEOCODE_UPDATED,
         value_fn=lambda c: c.geocode.postcode if c.geocode else None,
     ),
+    CaravanSensorDescription(
+        key="population", translation_key="population", icon="mdi:account-group",
+        native_unit_of_measurement="people",
+        state_class=SensorStateClass.MEASUREMENT,
+        update_signal=SIGNAL_ABS_UPDATED,
+        value_fn=lambda c: c.abs_data.population if c.abs_data else None,
+    ),
+    CaravanSensorDescription(
+        key="sa2_name", translation_key="sa2_name", icon="mdi:map-marker-radius",
+        update_signal=SIGNAL_ABS_UPDATED,
+        value_fn=lambda c: c.abs_data.sa2_name if c.abs_data else None,
+    ),
+    CaravanSensorDescription(
+        key="sa2_area_km2", translation_key="sa2_area_km2", icon="mdi:vector-square",
+        native_unit_of_measurement="km²",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        update_signal=SIGNAL_ABS_UPDATED,
+        value_fn=lambda c: c.abs_data.area_km2 if c.abs_data else None,
+    ),
+    CaravanSensorDescription(
+        key="population_density", translation_key="population_density",
+        icon="mdi:account-multiple",
+        native_unit_of_measurement="people/km²",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        update_signal=SIGNAL_ABS_UPDATED,
+        value_fn=lambda c: c.abs_data.population_density if c.abs_data else None,
+    ),
 )
 
 
@@ -323,4 +353,6 @@ class CaravanSensor(SensorEntity):
             return True
         if self.entity_description.update_signal == SIGNAL_GEOCODE_UPDATED:
             return self.coordinator.geocode is not None
+        if self.entity_description.update_signal == SIGNAL_ABS_UPDATED:
+            return self.coordinator.abs_data is not None
         return self.coordinator.latest is not None

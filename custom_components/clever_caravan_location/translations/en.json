@@ -144,6 +144,18 @@
       "postcode": {
         "name": "Postcode"
       },
+      "population": {
+        "name": "Population"
+      },
+      "sa2_name": {
+        "name": "Statistical Area (SA2)"
+      },
+      "sa2_area_km2": {
+        "name": "Statistical Area size"
+      },
+      "population_density": {
+        "name": "Population density"
+      },
       "gps_atomic_time": {
         "name": "GPS atomic time"
       }

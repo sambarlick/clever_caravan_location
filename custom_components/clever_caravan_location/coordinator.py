@@ -12,6 +12,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ABS_MIN_INTERVAL_S,
     CLIMB_GRADIENT_THRESHOLD_MS,
     CLIMB_WINDOW_S,
     DOMAIN,
@@ -23,6 +24,7 @@ from .const import (
     GRADIENT_LEVEL,
     PARKED_UP_AFTER_MINUTES,
     SET_LOCATION_MIN_DELTA_DEG,
+    SIGNAL_ABS_UPDATED,
     SIGNAL_GEOCODE_UPDATED,
     SIGNAL_LOCATION_UPDATED,
     SPEED_DRIVING_THRESHOLD,
@@ -33,6 +35,7 @@ from .const import (
     STATUS_UNKNOWN,
     TIMEZONE_MIN_DELTA_DEG,
 )
+from .abs import AbsResult, lookup_sa2_data
 from .nominatim import GeocodeResult, reverse_geocode
 from .sources import LocationFix, LocationSource
 
@@ -63,6 +66,10 @@ class CaravanLocationCoordinator:
         self._last_timezone: tuple[float, float] | None = None
         self._last_geocode_at: datetime | None = None
         self._last_geocode_pos: tuple[float, float] | None = None
+
+        self._abs_data: AbsResult | None = None
+        self._last_abs_sa2: str | None = None
+        self._last_abs_at: datetime | None = None
 
         source.subscribe(self._on_fix)
 
@@ -143,6 +150,10 @@ class CaravanLocationCoordinator:
     def geocode(self) -> GeocodeResult | None:
         return self._geocode
 
+    @property
+    def abs_data(self) -> AbsResult | None:
+        return self._abs_data
+
     @callback
     def _on_fix(self, fix: LocationFix) -> None:
         self._latest = fix
@@ -170,6 +181,7 @@ class CaravanLocationCoordinator:
         await self._update_zone_home(fix)
         await self._update_timezone(fix)
         await self._update_geocode(fix)
+        await self._update_abs(fix)
 
     def _update_status(self, fix: LocationFix) -> None:
         if not fix.valid:
@@ -275,6 +287,38 @@ class CaravanLocationCoordinator:
         if result is not None:
             self._geocode = result
             async_dispatcher_send(self.hass, SIGNAL_GEOCODE_UPDATED)
+
+    async def _update_abs(self, fix: LocationFix, force: bool = False) -> None:
+        # Gate on Australia — ABS only covers AU.
+        # Outside AU, retain last-known values silently.
+        if self._geocode is None or self._geocode.country_code != "au":
+            return
+
+        now = dt_util.utcnow()
+        if not force:
+            # Throttle to ABS_MIN_INTERVAL_S between calls.
+            if (
+                self._last_abs_at is not None
+                and (now - self._last_abs_at).total_seconds() < ABS_MIN_INTERVAL_S
+            ):
+                return
+
+        session = async_get_clientsession(self.hass)
+        result = await lookup_sa2_data(session, fix.latitude, fix.longitude)
+        self._last_abs_at = now
+
+        if result is None or result.sa2_code is None:
+            # Network/lookup failure or point outside SA2 coverage.
+            # Retain previous data; do not null sensors.
+            return
+
+        # Cache by SA2 code: skip dispatch if we're still in the same SA2.
+        if result.sa2_code == self._last_abs_sa2 and self._abs_data is not None:
+            return
+
+        self._abs_data = result
+        self._last_abs_sa2 = result.sa2_code
+        async_dispatcher_send(self.hass, SIGNAL_ABS_UPDATED)
 
     @staticmethod
     def _delta_exceeds(last: tuple[float, float] | None, fix: LocationFix, threshold_deg: float) -> bool:

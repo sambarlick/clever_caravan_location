@@ -94,9 +94,22 @@ NOMINATIM_USER_AGENT = (
 )
 NOMINATIM_TIMEOUT_S = 10
 
+# ABS Digital Atlas (Census G01 by SA2)
+ABS_URL = (
+    "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/"
+    "ABS_2021_Census_G01_SA2/FeatureServer/0/query"
+)
+ABS_USER_AGENT = (
+    "CleverCaravan/0.4 "
+    "(https://github.com/sambarlick/clever_caravan_location)"
+)
+ABS_TIMEOUT_S = 15
+ABS_MIN_INTERVAL_S = 60
+
 # Service
 SERVICE_UPDATE = "update"
 
 # Signal dispatch
 SIGNAL_LOCATION_UPDATED = f"{DOMAIN}_location_updated"
 SIGNAL_GEOCODE_UPDATED = f"{DOMAIN}_geocode_updated"
+SIGNAL_ABS_UPDATED = f"{DOMAIN}_abs_updated"
