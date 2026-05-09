@@ -12,7 +12,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SIGNAL_LOCATION_UPDATED
+from .const import CONF_SOURCE, DOMAIN, SIGNAL_LOCATION_UPDATED, SOURCE_USB
 from .coordinator import CaravanLocationCoordinator, get_coordinator
 
 
@@ -22,7 +22,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = get_coordinator(hass, entry.entry_id)
-    async_add_entities([GpsHealthySensor(coordinator, entry)])
+    is_usb = entry.data.get(CONF_SOURCE) == SOURCE_USB
+    async_add_entities([GpsHealthySensor(coordinator, entry, enabled=is_usb)])
 
 
 class GpsHealthySensor(BinarySensorEntity):
@@ -37,9 +38,11 @@ class GpsHealthySensor(BinarySensorEntity):
         self,
         coordinator: CaravanLocationCoordinator,
         entry: ConfigEntry,
+        enabled: bool = True,
     ) -> None:
         self.coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_gps_healthy"
+        self._attr_entity_registry_enabled_default = enabled
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Clever Caravan",

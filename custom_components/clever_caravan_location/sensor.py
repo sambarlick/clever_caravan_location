@@ -20,6 +20,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    CONF_SOURCE,
     DOMAIN,
     DOP_TO_METRES,
     FIX_MODE_2D,
@@ -35,6 +36,7 @@ from .const import (
     SIGNAL_LOCATION_UPDATED,
     SIGNAL_METEOSTAT_UPDATED,
     SIGNAL_WIKI_UPDATED,
+    SOURCE_USB,
     STATUS_OPTIONS,
 )
 from .coordinator import CaravanLocationCoordinator, get_coordinator
@@ -310,14 +312,34 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
 )
 
 
+# Sensor keys that only make sense on a USB GPS source. Disabled by
+# default on Entity-source and Manual installs — they're either always
+# unavailable (no NMEA data feed) or actively misleading (heading/climb
+# from a slow Starlink poll).
+USB_ONLY_KEYS: frozenset[str] = frozenset({
+    "fix_quality",
+    "fix_mode",
+    "satellites_used",
+    "satellites_visible",
+    "hdop",
+    "accuracy_horizontal",
+    "accuracy_vertical",
+    "gps_atomic_time",
+})
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = get_coordinator(hass, entry.entry_id)
+    is_usb = entry.data.get(CONF_SOURCE) == SOURCE_USB
     async_add_entities(
-        CaravanSensor(coordinator, entry, desc) for desc in SENSORS
+        CaravanSensor(coordinator, entry, desc, enabled=is_usb)
+        if desc.key in USB_ONLY_KEYS
+        else CaravanSensor(coordinator, entry, desc)
+        for desc in SENSORS
     )
 
 
@@ -334,10 +356,12 @@ class CaravanSensor(SensorEntity):
         coordinator: CaravanLocationCoordinator,
         entry: ConfigEntry,
         description: CaravanSensorDescription,
+        enabled: bool = True,
     ) -> None:
         self.coordinator = coordinator
         self.entity_description = description
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_entity_registry_enabled_default = enabled
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Clever Caravan",
