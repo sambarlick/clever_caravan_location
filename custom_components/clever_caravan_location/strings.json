@@ -144,6 +144,9 @@
       "postcode": {
         "name": "Postcode"
       },
+      "current_location": {
+        "name": "Current location"
+      },
       "population": {
         "name": "Population"
       },

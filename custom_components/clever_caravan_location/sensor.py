@@ -231,6 +231,16 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         value_fn=lambda c: c.geocode.postcode if c.geocode else None,
     ),
     CaravanSensorDescription(
+        key="current_location", translation_key="current_location",
+        icon="mdi:map-marker",
+        update_signal=SIGNAL_GEOCODE_UPDATED,
+        value_fn=lambda c: (
+            f"{c.geocode.city}, {c.geocode.state_short}"
+            if c.geocode and c.geocode.city and c.geocode.state_short
+            else (c.geocode.city if c.geocode and c.geocode.city else None)
+        ),
+    ),
+    CaravanSensorDescription(
         key="population", translation_key="population", icon="mdi:account-group",
         native_unit_of_measurement="people",
         state_class=SensorStateClass.MEASUREMENT,

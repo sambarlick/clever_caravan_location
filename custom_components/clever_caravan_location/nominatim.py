@@ -18,12 +18,27 @@ from .const import NOMINATIM_TIMEOUT_S, NOMINATIM_URL, NOMINATIM_USER_AGENT
 _LOGGER = logging.getLogger(__name__)
 
 
+# Map full Australian state/territory names to their short codes.
+# Nominatim returns "Queensland"; ABS/everyday usage prefers "QLD".
+AU_STATE_SHORT: dict[str, str] = {
+    "New South Wales": "NSW",
+    "Victoria": "VIC",
+    "Queensland": "QLD",
+    "South Australia": "SA",
+    "Western Australia": "WA",
+    "Tasmania": "TAS",
+    "Northern Territory": "NT",
+    "Australian Capital Territory": "ACT",
+}
+
+
 @dataclass(frozen=True)
 class GeocodeResult:
     """Best-effort fields extracted from Nominatim's response."""
 
     city: str | None
     state: str | None
+    state_short: str | None
     country: str | None
     country_code: str | None
     postcode: str | None
@@ -89,9 +104,19 @@ async def reverse_geocode(
         or "Unknown"
     )
 
+    state_full = address.get("state")
+    # Try the full-name map first; fall back to ISO 3166-2 codes which
+    # Nominatim returns as e.g. "AU-QLD" — strip the prefix.
+    state_short = AU_STATE_SHORT.get(state_full) if state_full else None
+    if not state_short:
+        iso = address.get("ISO3166-2-lvl4")
+        if isinstance(iso, str) and iso.startswith("AU-"):
+            state_short = iso[3:]
+
     return GeocodeResult(
         city=city,
-        state=address.get("state"),
+        state=state_full,
+        state_short=state_short,
         country=address.get("country"),
         country_code=address.get("country_code"),
         postcode=address.get("postcode"),
