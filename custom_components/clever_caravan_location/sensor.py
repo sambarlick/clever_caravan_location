@@ -289,6 +289,32 @@ class CaravanSensor(SensorEntity):
             ):
                 return None
             return {"bearing_deg": round(self.coordinator.latest.heading_deg, 1)}
+        if self.entity_description.key == "city":
+            geo = self.coordinator.geocode
+            if geo is None or geo.raw_address is None:
+                return None
+            addr = geo.raw_address
+            # Build a human-readable single-line address from Nominatim parts.
+            # Order: house_number road, suburb/city, state postcode, country
+            parts = []
+            road_bit = " ".join(
+                p for p in (addr.get("house_number"), addr.get("road")) if p
+            )
+            if road_bit:
+                parts.append(road_bit)
+            if geo.city and geo.city != "Unknown":
+                parts.append(geo.city)
+            state_pc = " ".join(
+                p for p in (geo.state, geo.postcode) if p
+            )
+            if state_pc:
+                parts.append(state_pc)
+            if geo.country:
+                parts.append(geo.country)
+            return {
+                "full_address": ", ".join(parts) if parts else None,
+                "raw_address": addr,
+            }
         return None
 
     @property
