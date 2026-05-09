@@ -35,7 +35,7 @@ from .const import (
     STATUS_UNKNOWN,
     TIMEZONE_MIN_DELTA_DEG,
 )
-from .abs import AbsResult, lookup_sa2_data
+from .abs import AbsResult, lookup_sal_data
 from .nominatim import GeocodeResult, reverse_geocode
 from .sources import LocationFix, LocationSource
 
@@ -68,7 +68,7 @@ class CaravanLocationCoordinator:
         self._last_geocode_pos: tuple[float, float] | None = None
 
         self._abs_data: AbsResult | None = None
-        self._last_abs_sa2: str | None = None
+        self._last_abs_sal: str | None = None
         self._last_abs_at: datetime | None = None
 
         source.subscribe(self._on_fix)
@@ -321,20 +321,20 @@ class CaravanLocationCoordinator:
                 return
 
         session = async_get_clientsession(self.hass)
-        result = await lookup_sa2_data(session, fix.latitude, fix.longitude)
+        result = await lookup_sal_data(session, fix.latitude, fix.longitude)
         self._last_abs_at = now
 
-        if result is None or result.sa2_code is None:
-            # Network/lookup failure or point outside SA2 coverage.
+        if result is None or result.sal_code is None:
+            # Network/lookup failure or point outside SAL coverage.
             # Retain previous data; do not null sensors.
             return
 
-        # Cache by SA2 code: skip dispatch if we're still in the same SA2.
-        if result.sa2_code == self._last_abs_sa2 and self._abs_data is not None:
+        # Cache by SAL code: skip dispatch if we're still in the same suburb/locality.
+        if result.sal_code == self._last_abs_sal and self._abs_data is not None:
             return
 
         self._abs_data = result
-        self._last_abs_sa2 = result.sa2_code
+        self._last_abs_sal = result.sal_code
         async_dispatcher_send(self.hass, SIGNAL_ABS_UPDATED)
 
     @staticmethod

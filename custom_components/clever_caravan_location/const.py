@@ -94,13 +94,13 @@ NOMINATIM_USER_AGENT = (
 )
 NOMINATIM_TIMEOUT_S = 10
 
-# ABS Digital Atlas (Census G01 by SA2)
+# ABS Digital Atlas (SEIFA by SAL)
 ABS_URL = (
     "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/"
-    "ABS_2021_Census_G01_SA2/FeatureServer/0/query"
+    "ABS_Socio_Economic_Indexes_for_Areas_SEIFA_by_2021_SAL/FeatureServer/0/query"
 )
 ABS_USER_AGENT = (
-    "CleverCaravan/0.4 "
+    "CleverCaravan/0.5 "
     "(https://github.com/sambarlick/clever_caravan_location)"
 )
 ABS_TIMEOUT_S = 15

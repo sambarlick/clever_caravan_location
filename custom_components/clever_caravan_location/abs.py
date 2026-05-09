@@ -1,8 +1,8 @@
-"""ABS Digital Atlas SA2 lookup.
+"""ABS Digital Atlas SAL lookup.
 
-Single API call against the ABS Census G01 SA2 layer returns the SA2
-polygon containing the given lat/long, with population (Tot_P_P) and
-area (areasqkm_2021) attributes joined.
+Single API call against the ABS SEIFA SAL layer returns the SAL
+polygon (suburb/locality) containing the given lat/long, with population (urp) and
+area (area_albers_sqkm) attributes joined.
 
 Endpoint is hosted by ABS in partnership with Geoscience Australia,
 publicly accessible, no API key required, CC-BY 4.0 licensed.
@@ -23,22 +23,22 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class AbsResult:
-    """Fields extracted from the ABS Census G01 SA2 response."""
+    """Fields extracted from the ABS SEIFA SAL response."""
 
-    sa2_code: str | None
-    sa2_name: str | None
+    sal_code: str | None
+    sal_name: str | None
     population: int | None
     area_km2: float | None
     population_density: float | None  # persons per km²
     raw_attributes: dict | None
 
 
-async def lookup_sa2_data(
+async def lookup_sal_data(
     session: aiohttp.ClientSession,
     latitude: float,
     longitude: float,
 ) -> AbsResult | None:
-    """Look up SA2-level census data for a coordinate.
+    """Look up SAL-level (suburb/locality) census data for a coordinate.
 
     Returns None on any failure — caller decides whether to retain
     previous data or null out the sensors.
@@ -49,7 +49,7 @@ async def lookup_sa2_data(
         "geometryType": "esriGeometryPoint",
         "inSR": "4326",  # WGS84 — GPS native
         "spatialRel": "esriSpatialRelIntersects",
-        "outFields": "sa2_code_2021,sa2_name_2021,tot_p_p,area_albers_sqkm",
+        "outFields": "sal_code_2021,sal_name_2021,urp,area_albers_sqkm",
         "returnGeometry": "false",
         "f": "json",
     }
@@ -73,17 +73,17 @@ async def lookup_sa2_data(
 
     features = data.get("features") if isinstance(data, dict) else None
     if not features:
-        # Empty result — point likely outside AU, or SA2 boundary gap
+        # Empty result — point likely outside AU, or SAL boundary gap (no nearest fallback)
         return None
 
     attrs = features[0].get("attributes", {}) or {}
 
-    sa2_code = attrs.get("sa2_code_2021")
-    sa2_name = attrs.get("sa2_name_2021")
-    population = attrs.get("tot_p_p")
+    sal_code = attrs.get("sal_code_2021")
+    sal_name = attrs.get("sal_name_2021")
+    population = attrs.get("urp")
     area = attrs.get("area_albers_sqkm")
 
-    if not sa2_code:
+    if not sal_code:
         return None
 
     # Density: persons per km². Both inputs must be non-null and area non-zero.
@@ -95,8 +95,8 @@ async def lookup_sa2_data(
             density = None
 
     return AbsResult(
-        sa2_code=str(sa2_code),
-        sa2_name=str(sa2_name) if sa2_name is not None else None,
+        sal_code=str(sal_code),
+        sal_name=str(sal_name) if sal_name is not None else None,
         population=int(population) if population is not None else None,
         area_km2=round(float(area), 2) if area is not None else None,
         population_density=density,

@@ -234,12 +234,14 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         value_fn=lambda c: c.abs_data.population if c.abs_data else None,
     ),
     CaravanSensorDescription(
-        key="sa2_name", translation_key="sa2_name", icon="mdi:map-marker-radius",
+        key="statistical_area", translation_key="statistical_area",
+        icon="mdi:map-marker-radius",
         update_signal=SIGNAL_ABS_UPDATED,
-        value_fn=lambda c: c.abs_data.sa2_name if c.abs_data else None,
+        value_fn=lambda c: c.abs_data.sal_name if c.abs_data else None,
     ),
     CaravanSensorDescription(
-        key="sa2_area_km2", translation_key="sa2_area_km2", icon="mdi:vector-square",
+        key="statistical_area_size", translation_key="statistical_area_size",
+        icon="mdi:vector-square",
         native_unit_of_measurement="km²",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
@@ -356,10 +358,10 @@ class CaravanSensor(SensorEntity):
             # Surface SA2 code on the name sensor for joining with other
             # ABS datasets if the user wants to extend.
             if (
-                self.entity_description.key == "sa2_name"
+                self.entity_description.key == "statistical_area"
                 and self.coordinator.abs_data is not None
             ):
-                attrs["sa2_code"] = self.coordinator.abs_data.sa2_code
+                attrs["sal_code"] = self.coordinator.abs_data.sal_code
             return attrs
         return None
 

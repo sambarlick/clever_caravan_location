@@ -147,10 +147,10 @@
       "population": {
         "name": "Population"
       },
-      "sa2_name": {
-        "name": "Statistical Area (SA2)"
+      "statistical_area": {
+        "name": "Statistical Area"
       },
-      "sa2_area_km2": {
+      "statistical_area_size": {
         "name": "Statistical Area size"
       },
       "population_density": {
