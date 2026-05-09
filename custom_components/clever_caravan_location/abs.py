@@ -49,7 +49,7 @@ async def lookup_sa2_data(
         "geometryType": "esriGeometryPoint",
         "inSR": "4326",  # WGS84 — GPS native
         "spatialRel": "esriSpatialRelIntersects",
-        "outFields": "sa2_code_2021,sa2_name_2021,Tot_P_P,areasqkm_2021",
+        "outFields": "sa2_code_2021,sa2_name_2021,tot_p_p,area_albers_sqkm",
         "returnGeometry": "false",
         "f": "json",
     }
@@ -80,8 +80,8 @@ async def lookup_sa2_data(
 
     sa2_code = attrs.get("sa2_code_2021")
     sa2_name = attrs.get("sa2_name_2021")
-    population = attrs.get("Tot_P_P")
-    area = attrs.get("areasqkm_2021")
+    population = attrs.get("tot_p_p")
+    area = attrs.get("area_albers_sqkm")
 
     if not sa2_code:
         return None
