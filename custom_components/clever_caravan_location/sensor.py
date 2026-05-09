@@ -345,6 +345,22 @@ class CaravanSensor(SensorEntity):
                 "full_address": ", ".join(parts) if parts else None,
                 "raw_address": addr,
             }
+        if self.entity_description.update_signal == SIGNAL_ABS_UPDATED:
+            # Mandatory CC-BY 4.0 attribution for ABS Census data.
+            attrs: dict = {
+                "attribution": (
+                    "Source: Australian Bureau of Statistics (ABS) "
+                    "Census 2021, CC BY 4.0"
+                ),
+            }
+            # Surface SA2 code on the name sensor for joining with other
+            # ABS datasets if the user wants to extend.
+            if (
+                self.entity_description.key == "sa2_name"
+                and self.coordinator.abs_data is not None
+            ):
+                attrs["sa2_code"] = self.coordinator.abs_data.sa2_code
+            return attrs
         return None
 
     @property

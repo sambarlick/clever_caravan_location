@@ -183,6 +183,23 @@ class CaravanLocationCoordinator:
         await self._update_geocode(fix)
         await self._update_abs(fix)
 
+    async def async_force_update(self) -> None:
+        """Force-run all action layers against the latest fix.
+
+        Bypasses all throttling: minimum intervals, distance deltas, and
+        SA2 cache. Called by the clever_caravan_location.update service.
+        """
+        if self._latest is None or not self._latest.valid:
+            _LOGGER.warning(
+                "Force update requested but no valid fix available yet"
+            )
+            return
+        fix = self._latest
+        await self._update_zone_home(fix, force=True)
+        await self._update_timezone(fix, force=True)
+        await self._update_geocode(fix, force=True)
+        await self._update_abs(fix, force=True)
+
     def _update_status(self, fix: LocationFix) -> None:
         if not fix.valid:
             self._status = STATUS_UNKNOWN
