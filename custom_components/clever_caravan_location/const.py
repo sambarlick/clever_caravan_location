@@ -94,6 +94,20 @@ NOMINATIM_USER_AGENT = (
 )
 NOMINATIM_TIMEOUT_S = 10
 
+# Meteostat climate normals via RapidAPI
+METEOSTAT_HOST = "meteostat.p.rapidapi.com"
+METEOSTAT_URL = "https://meteostat.p.rapidapi.com/point/normals"
+METEOSTAT_KEY = "2c0706353bmsh99520efe69ff5f7p18a435jsn40c4329870f8"  # RapidAPI key — set in const.py before deploy
+METEOSTAT_TIMEOUT_S = 15
+
+# Wikipedia REST summary
+WIKI_URL_BASE = "https://en.wikipedia.org/api/rest_v1/page/summary"
+WIKI_USER_AGENT = (
+    "CleverCaravan/0.6 "
+    "(https://github.com/sambarlick/clever_caravan_location)"
+)
+WIKI_TIMEOUT_S = 10
+
 # ABS Digital Atlas (SEIFA by SAL)
 ABS_URL = (
     "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/"
@@ -113,3 +127,5 @@ SERVICE_UPDATE = "update"
 SIGNAL_LOCATION_UPDATED = f"{DOMAIN}_location_updated"
 SIGNAL_GEOCODE_UPDATED = f"{DOMAIN}_geocode_updated"
 SIGNAL_ABS_UPDATED = f"{DOMAIN}_abs_updated"
+SIGNAL_WIKI_UPDATED = f"{DOMAIN}_wiki_updated"
+SIGNAL_METEOSTAT_UPDATED = f"{DOMAIN}_meteostat_updated"

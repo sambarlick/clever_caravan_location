@@ -158,11 +158,31 @@
       },
       "gps_atomic_time": {
         "name": "GPS atomic time"
+      },
+      "wikipedia_summary": {
+        "name": "Wikipedia summary"
+      },
+      "climate_mean_max": {
+        "name": "Climate mean max"
+      },
+      "climate_mean_min": {
+        "name": "Climate mean min"
+      },
+      "climate_mean_temp": {
+        "name": "Climate mean temp"
+      },
+      "climate_monthly_rainfall": {
+        "name": "Climate monthly rainfall"
       }
     },
     "binary_sensor": {
       "gps_healthy": {
         "name": "GPS healthy"
+      }
+    },
+    "image": {
+      "wikipedia_image": {
+        "name": "Wikipedia image"
       }
     }
   },

@@ -33,6 +33,8 @@ from .const import (
     SIGNAL_ABS_UPDATED,
     SIGNAL_GEOCODE_UPDATED,
     SIGNAL_LOCATION_UPDATED,
+    SIGNAL_METEOSTAT_UPDATED,
+    SIGNAL_WIKI_UPDATED,
     STATUS_OPTIONS,
 )
 from .coordinator import CaravanLocationCoordinator, get_coordinator
@@ -257,6 +259,54 @@ SENSORS: tuple[CaravanSensorDescription, ...] = (
         update_signal=SIGNAL_ABS_UPDATED,
         value_fn=lambda c: c.abs_data.population_density if c.abs_data else None,
     ),
+    CaravanSensorDescription(
+        key="wikipedia_summary", translation_key="wikipedia_summary",
+        icon="mdi:text-box-outline",
+        update_signal=SIGNAL_WIKI_UPDATED,
+        value_fn=lambda c: (
+            (c.wiki_data.extract or "")[:255]
+            if c.wiki_data and c.wiki_data.extract
+            else None
+        ),
+    ),
+    CaravanSensorDescription(
+        key="climate_mean_max", translation_key="climate_mean_max",
+        icon="mdi:thermometer-high",
+        native_unit_of_measurement="°C",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        update_signal=SIGNAL_METEOSTAT_UPDATED,
+        value_fn=lambda c: c.meteostat_data.mean_max_c if c.meteostat_data else None,
+    ),
+    CaravanSensorDescription(
+        key="climate_mean_min", translation_key="climate_mean_min",
+        icon="mdi:thermometer-low",
+        native_unit_of_measurement="°C",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        update_signal=SIGNAL_METEOSTAT_UPDATED,
+        value_fn=lambda c: c.meteostat_data.mean_min_c if c.meteostat_data else None,
+    ),
+    CaravanSensorDescription(
+        key="climate_mean_temp", translation_key="climate_mean_temp",
+        icon="mdi:thermometer",
+        native_unit_of_measurement="°C",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        update_signal=SIGNAL_METEOSTAT_UPDATED,
+        value_fn=lambda c: c.meteostat_data.mean_temp_c if c.meteostat_data else None,
+    ),
+    CaravanSensorDescription(
+        key="climate_monthly_rainfall", translation_key="climate_monthly_rainfall",
+        icon="mdi:weather-rainy",
+        native_unit_of_measurement="mm",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        update_signal=SIGNAL_METEOSTAT_UPDATED,
+        value_fn=lambda c: (
+            c.meteostat_data.monthly_rainfall_mm if c.meteostat_data else None
+        ),
+    ),
 )
 
 
@@ -355,7 +405,7 @@ class CaravanSensor(SensorEntity):
                     "Census 2021, CC BY 4.0"
                 ),
             }
-            # Surface SA2 code on the name sensor for joining with other
+            # Surface SAL code on the name sensor for joining with other
             # ABS datasets if the user wants to extend.
             if (
                 self.entity_description.key == "statistical_area"
@@ -363,6 +413,24 @@ class CaravanSensor(SensorEntity):
             ):
                 attrs["sal_code"] = self.coordinator.abs_data.sal_code
             return attrs
+        if self.entity_description.update_signal == SIGNAL_WIKI_UPDATED:
+            wiki = self.coordinator.wiki_data
+            attrs = {"attribution": "Source: Wikipedia, CC BY-SA 4.0"}
+            if wiki is not None:
+                if wiki.title:
+                    attrs["title"] = wiki.title
+                if wiki.article_url:
+                    attrs["article_url"] = wiki.article_url
+                if wiki.extract:
+                    # Full extract as attribute; state truncates to 255.
+                    attrs["full_extract"] = wiki.extract
+            return attrs
+        if self.entity_description.update_signal == SIGNAL_METEOSTAT_UPDATED:
+            return {
+                "attribution": (
+                    "Source: Meteostat, climate normals 1991-2020"
+                ),
+            }
         return None
 
     @property
@@ -373,4 +441,8 @@ class CaravanSensor(SensorEntity):
             return self.coordinator.geocode is not None
         if self.entity_description.update_signal == SIGNAL_ABS_UPDATED:
             return self.coordinator.abs_data is not None
+        if self.entity_description.update_signal == SIGNAL_WIKI_UPDATED:
+            return self.coordinator.wiki_data is not None
+        if self.entity_description.update_signal == SIGNAL_METEOSTAT_UPDATED:
+            return self.coordinator.meteostat_data is not None
         return self.coordinator.latest is not None

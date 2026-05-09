@@ -27,6 +27,8 @@ from .const import (
     SIGNAL_ABS_UPDATED,
     SIGNAL_GEOCODE_UPDATED,
     SIGNAL_LOCATION_UPDATED,
+    SIGNAL_METEOSTAT_UPDATED,
+    SIGNAL_WIKI_UPDATED,
     SPEED_DRIVING_THRESHOLD,
     SPEED_NOT_DRIVING_THRESHOLD,
     STATUS_DRIVING,
@@ -36,8 +38,10 @@ from .const import (
     TIMEZONE_MIN_DELTA_DEG,
 )
 from .abs import AbsResult, lookup_sal_data
+from .meteostat import MeteostatResult, fetch_climate_normals
 from .nominatim import GeocodeResult, reverse_geocode
 from .sources import LocationFix, LocationSource
+from .wikipedia import WikiResult, fetch_summary
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +74,13 @@ class CaravanLocationCoordinator:
         self._abs_data: AbsResult | None = None
         self._last_abs_sal: str | None = None
         self._last_abs_at: datetime | None = None
+
+        self._wiki_data: WikiResult | None = None
+        self._last_wiki_sal: str | None = None
+
+        self._meteostat_data: MeteostatResult | None = None
+        self._last_meteostat_sal: str | None = None
+        self._last_meteostat_month: int | None = None
 
         source.subscribe(self._on_fix)
 
@@ -154,6 +165,14 @@ class CaravanLocationCoordinator:
     def abs_data(self) -> AbsResult | None:
         return self._abs_data
 
+    @property
+    def wiki_data(self) -> WikiResult | None:
+        return self._wiki_data
+
+    @property
+    def meteostat_data(self) -> MeteostatResult | None:
+        return self._meteostat_data
+
     @callback
     def _on_fix(self, fix: LocationFix) -> None:
         self._latest = fix
@@ -178,16 +197,29 @@ class CaravanLocationCoordinator:
         return False
 
     async def _run_actions(self, fix: LocationFix) -> None:
+        # Geocode-trigger path: zone.home + timezone need to track during
+        # drive (state lines, time zones), so they keep firing on movement.
+        # Geocode itself also runs here so the city/state are fresh.
         await self._update_zone_home(fix)
         await self._update_timezone(fix)
         await self._update_geocode(fix)
-        await self._update_abs(fix)
+
+        # Parked-Up-transition path: ABS, Meteostat, Wikipedia. These
+        # describe "where we're staying" and only need to fetch when the
+        # vehicle has actually settled.
+        if (
+            self._status == STATUS_PARKED_UP
+            and self._previous_status != STATUS_PARKED_UP
+        ):
+            await self._update_abs(fix)
+            await self._update_wiki()
+            await self._update_meteostat(fix)
 
     async def async_force_update(self) -> None:
         """Force-run all action layers against the latest fix.
 
         Bypasses all throttling: minimum intervals, distance deltas, and
-        SA2 cache. Called by the clever_caravan_location.update service.
+        SAL cache. Called by the clever_caravan_location.update service.
         """
         if self._latest is None or not self._latest.valid:
             _LOGGER.warning(
@@ -199,6 +231,8 @@ class CaravanLocationCoordinator:
         await self._update_timezone(fix, force=True)
         await self._update_geocode(fix, force=True)
         await self._update_abs(fix, force=True)
+        await self._update_wiki(force=True)
+        await self._update_meteostat(fix, force=True)
 
     def _update_status(self, fix: LocationFix) -> None:
         if not fix.valid:
@@ -336,6 +370,70 @@ class CaravanLocationCoordinator:
         self._abs_data = result
         self._last_abs_sal = result.sal_code
         async_dispatcher_send(self.hass, SIGNAL_ABS_UPDATED)
+
+    async def _update_wiki(self, force: bool = False) -> None:
+        """Fetch Wikipedia summary keyed off current city/state.
+
+        Cache key: SAL code (so we only refetch when crossing into a
+        new locality). When forced, bypass the cache.
+        """
+        if self._geocode is None or self._geocode.country_code != "au":
+            return
+        if self._abs_data is None:
+            return  # need SAL code for cache; rare race, skip and let next trigger handle it
+
+        sal_code = self._abs_data.sal_code
+        if not force and sal_code == self._last_wiki_sal and self._wiki_data is not None:
+            return
+
+        city = self._geocode.city
+        state = self._geocode.state
+        if not city:
+            return
+
+        session = async_get_clientsession(self.hass)
+        result = await fetch_summary(session, city, state)
+        if result is None:
+            # Retain previous; don't null
+            return
+
+        self._wiki_data = result
+        self._last_wiki_sal = sal_code
+        async_dispatcher_send(self.hass, SIGNAL_WIKI_UPDATED)
+
+    async def _update_meteostat(self, fix: LocationFix, force: bool = False) -> None:
+        """Fetch Meteostat climate normals.
+
+        Cache key: SAL code AND current calendar month. Refetches
+        on month rollover (so May normals get replaced by June
+        normals on the 1st of June even if the user hasn't moved).
+        """
+        if self._geocode is None or self._geocode.country_code != "au":
+            return
+        if self._abs_data is None:
+            return
+
+        sal_code = self._abs_data.sal_code
+        current_month = dt_util.utcnow().month
+        if (
+            not force
+            and sal_code == self._last_meteostat_sal
+            and current_month == self._last_meteostat_month
+            and self._meteostat_data is not None
+        ):
+            return
+
+        session = async_get_clientsession(self.hass)
+        result = await fetch_climate_normals(
+            session, fix.latitude, fix.longitude, fix.elevation
+        )
+        if result is None:
+            return
+
+        self._meteostat_data = result
+        self._last_meteostat_sal = sal_code
+        self._last_meteostat_month = current_month
+        async_dispatcher_send(self.hass, SIGNAL_METEOSTAT_UPDATED)
 
     @staticmethod
     def _delta_exceeds(last: tuple[float, float] | None, fix: LocationFix, threshold_deg: float) -> bool:
