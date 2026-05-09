@@ -67,9 +67,9 @@ class LocationSource(ABC):
     def _publish(self, fix: LocationFix) -> None:
         self._latest = fix
         if self._listener is not None:
-            try:
-                self._listener(fix)
-            except Exception:  # noqa: BLE001
-                _LOGGER.exception(
-                    "Listener raised on fix from %s", type(self).__name__
-                )
+            # Bridge to the event loop. Sources may publish from sync
+            # threads (USB executor, state-change callbacks via certain
+            # paths), but the listener calls async_dispatcher_send which
+            # is event-loop-only. hass.add_job handles both cases:
+            # already on-loop → schedules, on a thread → bridges.
+            self.hass.add_job(self._listener, fix)
