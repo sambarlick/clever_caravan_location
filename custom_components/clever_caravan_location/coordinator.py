@@ -175,6 +175,20 @@ class CaravanLocationCoordinator:
 
     @callback
     def _on_fix(self, fix: LocationFix) -> None:
+        # Parked Up gate: drop fixes that are within snapshot tolerance
+        # so the database, zone.home, and downstream automations don't
+        # churn on every sub-metre GPS jitter from chatty sources like
+        # Starlink. Genuine movement (drives off, gets towed) clears
+        # the gate and resumes normal processing.
+        if (
+            self._status == STATUS_PARKED_UP
+            and fix.valid
+            and self._snapshot_lat is not None
+            and self._snapshot_lon is not None
+            and abs(fix.latitude - self._snapshot_lat) < SET_LOCATION_MIN_DELTA_DEG
+            and abs(fix.longitude - self._snapshot_lon) < SET_LOCATION_MIN_DELTA_DEG
+        ):
+            return
         self._latest = fix
         self._update_status(fix)
         self._update_climb(fix)
