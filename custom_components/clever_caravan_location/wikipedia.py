@@ -25,7 +25,7 @@ class WikiResult:
 
     title: str | None
     extract: str | None  # the summary paragraph
-    image_url: str | None  # full-resolution image URL, or None
+    image_url: str | None  # image URL (full-res preferred, thumbnail fallback), or None
     article_url: str | None  # link to the live article
 
 
@@ -76,9 +76,13 @@ async def fetch_summary(
     if not data:
         return None
 
+    # Prefer full-resolution originalimage; fall back to the smaller
+    # thumbnail when a page has no originalimage block.
     image_url = None
     if isinstance(data.get("originalimage"), dict):
         image_url = data["originalimage"].get("source")
+    if image_url is None and isinstance(data.get("thumbnail"), dict):
+        image_url = data["thumbnail"].get("source")
 
     article_url = None
     content_urls = data.get("content_urls")
