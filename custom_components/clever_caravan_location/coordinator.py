@@ -196,7 +196,11 @@ class CaravanLocationCoordinator:
         async_dispatcher_send(self.hass, SIGNAL_LOCATION_UPDATED)
 
         if fix.valid and self._should_run_actions():
-            self.hass.async_create_task(self._run_actions(fix))
+            entered_parked = (
+                self._status == STATUS_PARKED_UP
+                and self._previous_status != STATUS_PARKED_UP
+            )
+            self.hass.async_create_task(self._run_actions(fix, entered_parked))
 
         self._previous_status = self._status
 
@@ -208,9 +212,11 @@ class CaravanLocationCoordinator:
             return True
         if self._previous_status == STATUS_DRIVING and self._status != STATUS_DRIVING:
             return True
+        if self._status == STATUS_PARKED_UP and self._previous_status != STATUS_PARKED_UP:
+            return True
         return False
 
-    async def _run_actions(self, fix: LocationFix) -> None:
+    async def _run_actions(self, fix: LocationFix, entered_parked: bool) -> None:
         # Geocode-trigger path: zone.home + timezone need to track during
         # drive (state lines, time zones), so they keep firing on movement.
         # Geocode itself also runs here so the city/state are fresh.
@@ -218,13 +224,11 @@ class CaravanLocationCoordinator:
         await self._update_timezone(fix)
         await self._update_geocode(fix)
 
-        # Parked-Up-transition path: ABS, Meteostat, Wikipedia. These
-        # describe "where we're staying" and only need to fetch when the
-        # vehicle has actually settled.
-        if (
-            self._status == STATUS_PARKED_UP
-            and self._previous_status != STATUS_PARKED_UP
-        ):
+        # Parked-Up-transition path: ABS, Meteostat, Wikipedia. The
+        # transition is captured synchronously in _on_fix and passed in;
+        # re-reading self._previous_status here is unsafe because it is
+        # reassigned before this deferred task runs.
+        if entered_parked:
             await self._update_abs(fix)
             await self._update_wiki()
             await self._update_meteostat(fix)

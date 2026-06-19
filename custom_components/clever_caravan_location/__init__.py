@@ -30,7 +30,7 @@ USB_ONLY_KEYS: frozenset[str] = frozenset({
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.IMAGE]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.IMAGE, Platform.BUTTON]
 
 
 def _disable_usb_entities_if_needed(

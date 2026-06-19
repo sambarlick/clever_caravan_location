@@ -10,7 +10,7 @@
       },
       "usb": {
         "title": "USB GPS dongle",
-        "description": "Pick the GPS device. Detected USB serial devices appear in the dropdown — if your dongle isn't listed, type the path manually.",
+        "description": "Pick the GPS device. Detected USB serial devices appear in the dropdown \u2014 if your dongle isn't listed, type the path manually.",
         "data": {
           "usb_device": "GPS device path",
           "usb_baudrate": "Baudrate"
@@ -186,6 +186,11 @@
     "image": {
       "wikipedia_image": {
         "name": "Wikipedia image"
+      }
+    },
+    "button": {
+      "update": {
+        "name": "Update"
       }
     }
   },
