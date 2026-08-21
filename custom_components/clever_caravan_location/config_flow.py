@@ -1,4 +1,4 @@
-"""Config flow for Clever Caravan Location."""
+"""Config flow for Clever Caravan: Location."""
 
 from __future__ import annotations
 
@@ -7,7 +7,11 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigFlow,
+    ConfigFlowResult,
+)
 from homeassistant.helpers import selector
 
 from .const import (
@@ -46,7 +50,13 @@ def _scan_serial_devices() -> list[str]:
 
 
 class CleverCaravanLocationConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Two-step flow: pick source type, then pick source-specific config."""
+    """Two-step flow: pick source type, then pick source-specific config.
+
+    The same two source-specific steps (usb / entities) back both the
+    initial setup and the reconfigure flow. On initial setup they call
+    async_create_entry; on reconfigure they update the existing entry in
+    place and reload, preserving entity IDs and history.
+    """
 
     VERSION = 1
 
@@ -79,6 +89,40 @@ class CleverCaravanLocationConfigFlow(ConfigFlow, domain=DOMAIN):
             }),
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the source (or its config) on the existing entry.
+
+        Re-runs the same source picker, defaulted to the current source,
+        then routes into the shared usb/entities step. Those steps detect
+        the reconfigure context and update-and-reload instead of creating
+        a new entry.
+        """
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            self._source_type = user_input[CONF_SOURCE]
+            if self._source_type == SOURCE_USB:
+                return await self.async_step_usb()
+            return await self.async_step_entities()
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({
+                vol.Required(
+                    CONF_SOURCE,
+                    default=entry.data.get(CONF_SOURCE, SOURCE_USB),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=SOURCES,
+                        translation_key="source",
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
+                ),
+            }),
+        )
+
     async def async_step_usb(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -91,13 +135,15 @@ class CleverCaravanLocationConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_USB_DEVICE: user_input[CONF_USB_DEVICE],
                 CONF_USB_BAUDRATE: int(user_input[CONF_USB_BAUDRATE]),
             }
-            return self.async_create_entry(
-                title="Clever Caravan (USB GPS)", data=data,
-            )
+            return self._finish(title="Clever Caravan: Location (USB GPS)", data=data)
 
-        # custom_value=True lets the user type a path even when nothing's
-        # auto-detected (e.g. dongle plugged in after onboarding starts).
-        device_default = detected[0] if detected else ""
+        # Prefill from the existing entry when reconfiguring an already-USB
+        # source. custom_value=True lets the user type a path even when
+        # nothing's auto-detected (e.g. dongle plugged in after onboarding
+        # starts, or the previously-configured device isn't present now).
+        current = self._reconfigure_data()
+        device_default = current.get(CONF_USB_DEVICE) or (detected[0] if detected else "")
+        baud_default = current.get(CONF_USB_BAUDRATE, DEFAULT_BAUDRATE)
 
         return self.async_show_form(
             step_id="usb",
@@ -109,7 +155,7 @@ class CleverCaravanLocationConfigFlow(ConfigFlow, domain=DOMAIN):
                         custom_value=True,
                     )
                 ),
-                vol.Required(CONF_USB_BAUDRATE, default=DEFAULT_BAUDRATE): selector.NumberSelector(
+                vol.Required(CONF_USB_BAUDRATE, default=baud_default): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=2400, max=921600, step=1,
                         mode=selector.NumberSelectorMode.BOX,
@@ -121,28 +167,67 @@ class CleverCaravanLocationConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_entities(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Entity-based or manual source: pick the entities."""
+        """Entity-based or manual source: pick the entities.
+
+        For a device_tracker (e.g. the Companion app on an iPad), point
+        both latitude and longitude at the same device_tracker entity —
+        the source reads the coordinates from its attributes.
+        """
         if user_input is not None:
             data = {CONF_SOURCE: self._source_type, **user_input}
             title = {
-                SOURCE_ENTITY: "Clever Caravan (Entity-based)",
-                SOURCE_MANUAL: "Clever Caravan (Manual)",
+                SOURCE_ENTITY: "Clever Caravan: Location (Entity-based)",
+                SOURCE_MANUAL: "Clever Caravan: Location (Manual)",
             }[self._source_type or SOURCE_ENTITY]
-            return self.async_create_entry(title=title, data=data)
+            return self._finish(title=title, data=data)
 
+        current = self._reconfigure_data()
         sensor_or_input = selector.EntitySelector(
             selector.EntitySelectorConfig(
                 domain=["sensor", "input_number", "device_tracker"],
             )
         )
 
+        def _field(key: str, required: bool) -> vol.Marker:
+            marker = vol.Required if required else vol.Optional
+            if current.get(key) is not None:
+                return marker(key, default=current[key])
+            return marker(key)
+
         return self.async_show_form(
             step_id="entities",
             data_schema=vol.Schema({
-                vol.Required(CONF_LATITUDE_ENTITY): sensor_or_input,
-                vol.Required(CONF_LONGITUDE_ENTITY): sensor_or_input,
-                vol.Optional(CONF_ELEVATION_ENTITY): sensor_or_input,
-                vol.Optional(CONF_SPEED_ENTITY): sensor_or_input,
+                _field(CONF_LATITUDE_ENTITY, True): sensor_or_input,
+                _field(CONF_LONGITUDE_ENTITY, True): sensor_or_input,
+                _field(CONF_ELEVATION_ENTITY, False): sensor_or_input,
+                _field(CONF_SPEED_ENTITY, False): sensor_or_input,
             }),
             description_placeholders={"source": self._source_type or ""},
         )
+
+    def _reconfigure_data(self) -> dict[str, Any]:
+        """Existing entry data to prefill from, or empty on fresh setup.
+
+        Only prefills when reconfiguring and the source type is unchanged —
+        switching source (e.g. USB -> Entity) starts the new step blank,
+        since the old source's fields don't apply.
+        """
+        if self.source != SOURCE_RECONFIGURE:
+            return {}
+        entry = self._get_reconfigure_entry()
+        if entry.data.get(CONF_SOURCE) != self._source_type:
+            return {}
+        return dict(entry.data)
+
+    def _finish(self, *, title: str, data: dict[str, Any]) -> ConfigFlowResult:
+        """Create the entry, or update-and-reload it when reconfiguring.
+
+        Title is intentionally left untouched on reconfigure so a
+        user-renamed entry keeps its name.
+        """
+        if self.source == SOURCE_RECONFIGURE:
+            return self.async_update_reload_and_abort(
+                self._get_reconfigure_entry(),
+                data=data,
+            )
+        return self.async_create_entry(title=title, data=data)

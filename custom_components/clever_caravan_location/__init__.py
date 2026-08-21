@@ -1,4 +1,4 @@
-"""Clever Caravan Location integration."""
+"""Clever Caravan: Location integration."""
 
 from __future__ import annotations
 
@@ -43,6 +43,9 @@ def _disable_usb_entities_if_needed(
     This migration disables them, but only if the user hasn't already
     explicitly disabled or enabled them (i.e. disabled_by is None and
     they're still in the integration-default state).
+
+    This also runs on reconfigure: switching a USB source to entity/manual
+    triggers a reload, and the GPS-only entities disable themselves here.
     """
     if entry.data.get(CONF_SOURCE) == SOURCE_USB:
         return
@@ -65,7 +68,7 @@ def _disable_usb_entities_if_needed(
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Clever Caravan Location from a config entry."""
+    """Set up Clever Caravan: Location from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
     source = build_source(hass, dict(entry.data))
@@ -80,7 +83,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _disable_usb_entities_if_needed(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     # Register the update service once (across all entries — single instance
     # is enforced in the config flow anyway).
@@ -104,7 +106,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.data[DOMAIN]:
             hass.services.async_remove(DOMAIN, SERVICE_UPDATE)
     return unload_ok
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
