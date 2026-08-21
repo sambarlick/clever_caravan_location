@@ -2,7 +2,27 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 DOMAIN = "clever_caravan_location"
+
+# Integration version, read from the manifest so it has a single source of
+# truth. Used to build the outbound User-Agent below. Falls back gracefully
+# if the manifest can't be read for any reason.
+try:
+    VERSION: str = json.loads(
+        (Path(__file__).parent / "manifest.json").read_text(encoding="utf-8")
+    )["version"]
+except (OSError, ValueError, KeyError):
+    VERSION = "0.0.0"
+
+# Single User-Agent for every outbound API call (Nominatim, Wikipedia, ABS).
+# Derived from VERSION so it never drifts out of step with releases.
+USER_AGENT = (
+    f"CleverCaravan/{VERSION} "
+    "(https://github.com/sambarlick/clever_caravan_location)"
+)
 
 # Config entry keys
 CONF_SOURCE = "source"
@@ -88,10 +108,7 @@ GEOCODE_MIN_INTERVAL_S = 60
 
 # Nominatim
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
-NOMINATIM_USER_AGENT = (
-    "CleverCaravan/0.2 "
-    "(https://github.com/sambarlick/clever_caravan_location)"
-)
+NOMINATIM_USER_AGENT = USER_AGENT
 NOMINATIM_TIMEOUT_S = 10
 
 # Meteostat climate normals via RapidAPI
@@ -102,10 +119,7 @@ METEOSTAT_TIMEOUT_S = 15
 
 # Wikipedia REST summary
 WIKI_URL_BASE = "https://en.wikipedia.org/api/rest_v1/page/summary"
-WIKI_USER_AGENT = (
-    "CleverCaravan/0.6 "
-    "(https://github.com/sambarlick/clever_caravan_location)"
-)
+WIKI_USER_AGENT = USER_AGENT
 WIKI_TIMEOUT_S = 10
 
 # ABS Digital Atlas (SEIFA by SAL)
@@ -113,10 +127,7 @@ ABS_URL = (
     "https://services-ap1.arcgis.com/ypkPEy1AmwPKGNNv/arcgis/rest/services/"
     "ABS_Socio_Economic_Indexes_for_Areas_SEIFA_by_2021_SAL/FeatureServer/0/query"
 )
-ABS_USER_AGENT = (
-    "CleverCaravan/0.5 "
-    "(https://github.com/sambarlick/clever_caravan_location)"
-)
+ABS_USER_AGENT = USER_AGENT
 ABS_TIMEOUT_S = 15
 ABS_MIN_INTERVAL_S = 60
 
