@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Samuel Myers. All rights reserved.
+# Proprietary - see LICENSE. Unauthorised use, copying, or distribution prohibited.
+
 """USB GPS source.
 
 Reads NMEA 0183 sentences from a USB GPS dongle via serial connection.

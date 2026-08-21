@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Samuel Myers. All rights reserved.
+# Proprietary - see LICENSE. Unauthorised use, copying, or distribution prohibited.
+
 """Entity-based location source.
 
 Reads lat/lon (and optional elevation/speed) from configured HA entities.

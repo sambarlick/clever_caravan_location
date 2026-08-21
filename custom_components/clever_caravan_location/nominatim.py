@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Samuel Myers. All rights reserved.
+# Proprietary - see LICENSE. Unauthorised use, copying, or distribution prohibited.
+
 """Nominatim reverse-geocoding client.
 
 Uses HA's shared aiohttp session and stdlib asyncio.timeout (Python 3.11+).

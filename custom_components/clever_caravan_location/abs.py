@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Samuel Myers. All rights reserved.
+# Proprietary - see LICENSE. Unauthorised use, copying, or distribution prohibited.
+
 """ABS Digital Atlas SAL lookup.
 
 Single API call against the ABS SEIFA SAL layer returns the SAL

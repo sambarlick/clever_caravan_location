@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Samuel Myers. All rights reserved.
+# Proprietary - see LICENSE. Unauthorised use, copying, or distribution prohibited.
+
 """Meteostat climate normals client.
 
 Fetches 30-year monthly climate normals (1991-2020) from RapidAPI's
