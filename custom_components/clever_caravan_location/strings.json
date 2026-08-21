@@ -2,8 +2,15 @@
   "config": {
     "step": {
       "user": {
-        "title": "Clever Caravan Location",
+        "title": "Clever Caravan: Location",
         "description": "Pick the type of location source.",
+        "data": {
+          "source": "Source type"
+        }
+      },
+      "reconfigure": {
+        "title": "Change location source",
+        "description": "Change where location comes from. Existing entities and history are kept. Pick the source type \u2014 the next step collects its settings.",
         "data": {
           "source": "Source type"
         }
@@ -28,7 +35,7 @@
       }
     },
     "abort": {
-      "already_configured": "Clever Caravan Location is already configured (only one instance is supported)."
+      "already_configured": "Clever Caravan: Location is already configured (only one instance is supported)."
     }
   },
   "selector": {
