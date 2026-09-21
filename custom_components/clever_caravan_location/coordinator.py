@@ -198,12 +198,21 @@ class CaravanLocationCoordinator:
         self._update_snapshot(fix)
         async_dispatcher_send(self.hass, SIGNAL_LOCATION_UPDATED)
 
+        # Capture before _should_run_actions() consumes the flag.
+        is_bootstrap = self._cold_start_bootstrap_pending
+
         if fix.valid and self._should_run_actions():
             entered_parked = (
                 self._status == STATUS_PARKED_UP
                 and self._previous_status != STATUS_PARKED_UP
             )
-            self.hass.async_create_task(self._run_actions(fix, entered_parked))
+            # Enrich on park transition, or on the first valid fix after
+            # startup (HA restarted while stationary). If the rig boots
+            # mid-drive, skip — the park transition will cover it.
+            enrich = entered_parked or (
+                is_bootstrap and self._status != STATUS_DRIVING
+            )
+            self.hass.async_create_task(self._run_actions(fix, enrich))
 
         self._previous_status = self._status
 
@@ -219,7 +228,7 @@ class CaravanLocationCoordinator:
             return True
         return False
 
-    async def _run_actions(self, fix: LocationFix, entered_parked: bool) -> None:
+    async def _run_actions(self, fix: LocationFix, enrich: bool) -> None:
         # Geocode-trigger path: zone.home + timezone need to track during
         # drive (state lines, time zones), so they keep firing on movement.
         # Geocode itself also runs here so the city/state are fresh.
@@ -227,11 +236,12 @@ class CaravanLocationCoordinator:
         await self._update_timezone(fix)
         await self._update_geocode(fix)
 
-        # Parked-Up-transition path: ABS, Meteostat, Wikipedia. The
-        # transition is captured synchronously in _on_fix and passed in;
-        # re-reading self._previous_status here is unsafe because it is
-        # reassigned before this deferred task runs.
-        if entered_parked:
+        # Enrichment path: ABS, Wikipedia, Meteostat. Runs on the Parked Up
+        # transition and on the cold-start bootstrap. The decision is made
+        # synchronously in _on_fix and passed in; re-reading
+        # self._previous_status here is unsafe because it is reassigned
+        # before this deferred task runs.
+        if enrich:
             await self._update_abs(fix)
             await self._update_wiki()
             await self._update_meteostat(fix)
