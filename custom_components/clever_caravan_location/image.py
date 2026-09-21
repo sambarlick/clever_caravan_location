@@ -5,23 +5,30 @@
 
 This avoids writing files to /config/www/ — HA caches and serves the
 remote image directly. Dashboard markdown can reference the image
-entity via /api/image_proxy/image.clever_caravan_image.
+entity via its entity_picture attribute.
+
+The image is fetched with the integration's own User-Agent rather than
+HA's default httpx client: Wikimedia rate-limits generic client UAs
+(429 Too Many Requests) on upload.wikimedia.org.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+import asyncio
 import logging
+
+import aiohttp
 
 from homeassistant.components.image import ImageEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, SIGNAL_WIKI_UPDATED
+from .const import DOMAIN, SIGNAL_WIKI_UPDATED, USER_AGENT, WIKI_TIMEOUT_S
 from .coordinator import CaravanLocationCoordinator, get_coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +44,7 @@ async def async_setup_entry(
 
 
 class CaravanWikipediaImage(ImageEntity):
-    """Image entity backed by Wikipedia's thumbnail URL."""
+    """Image entity backed by Wikipedia's lead image URL."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -60,6 +67,7 @@ class CaravanWikipediaImage(ImageEntity):
             model="Location",
         )
         self._current_url: str | None = None
+        self._image_bytes: bytes | None = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -81,8 +89,45 @@ class CaravanWikipediaImage(ImageEntity):
         new_url = wiki.image_url if wiki else None
         if new_url != self._current_url:
             self._current_url = new_url
-            self._attr_image_url = new_url
+            self._image_bytes = None  # invalidate cache
             self._attr_image_last_updated = dt_util.utcnow()
+
+    async def async_image(self) -> bytes | None:
+        """Fetch (once per URL) with our own User-Agent, then serve cached bytes."""
+        url = self._current_url
+        if url is None:
+            return None
+        if self._image_bytes is not None:
+            return self._image_bytes
+
+        session = async_get_clientsession(self.hass)
+        try:
+            async with asyncio.timeout(WIKI_TIMEOUT_S):
+                async with session.get(
+                    url, headers={"User-Agent": USER_AGENT}
+                ) as resp:
+                    if resp.status != 200:
+                        _LOGGER.warning(
+                            "Wikipedia image fetch returned HTTP %s for %s",
+                            resp.status,
+                            url,
+                        )
+                        return None
+                    content_type = resp.headers.get(
+                        "Content-Type", "image/jpeg"
+                    ).split(";")[0]
+                    data = await resp.read()
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            _LOGGER.warning("Wikipedia image fetch failed for %s: %s", url, exc)
+            return None
+
+        # Guard against the URL changing mid-fetch
+        if url != self._current_url:
+            return None
+
+        self._attr_content_type = content_type
+        self._image_bytes = data
+        return data
 
     @property
     def available(self) -> bool:
